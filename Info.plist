@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Your bundle’s name and executable -->
+  <key>CFBundleName</key>
+  <string>TypingApp</string>
+  <key>CFBundleExecutable</key>
+  <string>TypingApp</string>
+
+  <!-- Unique identifier -->
+  <key>CFBundleIdentifier</key>
+  <string>com.example.TypingApp</string>
+
+  <!-- Mark this as a normal macOS app -->
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+
+  <!-- Tell Cocoa what principal class to launch -->
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+
+  <!-- Enable High‑DPI (Retina) support -->
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
