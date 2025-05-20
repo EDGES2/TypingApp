@@ -413,6 +413,9 @@ int main(int argc, char **argv) {
                 render_pen_y_on_screen >= text_viewport_top_y + (DISPLAY_LINES -1) * line_h + line_h/2 ) {
                 break;
             }
+            if (render_pen_y_on_screen >= text_viewport_top_y + (DISPLAY_LINES + 1) * line_h) {
+                 break;
+            }
 
             size_t current_block_start_byte_pos_render = p_render_iter - text_to_type;
             TextBlockInfo render_block = get_next_text_block(&p_render_iter, p_text_end_for_render, font,
@@ -462,11 +465,7 @@ int main(int argc, char **argv) {
                         }
                     }
 
-                    // Виправлено: Переміщено мітку end_render_loop_label_main_outer сюди,
-                    // але краще використовувати break або умови циклу.
-                    // Поки що залишаємо goto, але це не найкраща практика.
-                    // Фактично, goto тут не потрібен, якщо зовнішній цикл має правильну умову.
-                    if (lines_on_screen_count > DISPLAY_LINES) break; // Замість goto
+                    if (lines_on_screen_count > DISPLAY_LINES) break;
 
                     if (!render_block.is_tab) {
                         const char *p_char_in_block_iter = render_block.start_ptr;
@@ -559,7 +558,7 @@ int main(int argc, char **argv) {
                     }
                 }
                  else if (first_line_in_viewport_started_rendering && lines_on_screen_count >= DISPLAY_LINES){
-                    goto end_render_loop_label_main_outer; // Вихід з основного циклу рендерингу
+                    break;
                 }
             }
 
@@ -568,7 +567,10 @@ int main(int argc, char **argv) {
                 final_cursor_draw_y_baseline = render_pen_y_on_screen;
             }
         }
-        end_render_loop_label_main_outer:; // Визначення мітки тут
+        // Мітка end_render_loop_label_main_outer більше не використовується активно з goto,
+        // оскільки break виконує ту ж функцію виходу з циклу.
+        // Залишаю її закоментованою на випадок, якщо логіка зміниться.
+        // end_render_loop_label_main_outer:;
 
 
         if (show_cursor && current_input_byte_idx <= final_text_len) {
