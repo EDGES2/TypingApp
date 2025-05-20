@@ -58,7 +58,9 @@ int get_codepoint_advance_and_metrics(TTF_Font *font, Uint32 codepoint, int fall
     if (codepoint < 128 && codepoint >= 32) {
         adv = glyph_cache_adv[codepoint];
         if (glyph_cache_w[COL_TEXT][codepoint] > 0) char_w = glyph_cache_w[COL_TEXT][codepoint];
+        else char_w = adv;
         if (glyph_cache_h[COL_TEXT][codepoint] > 0) char_h = glyph_cache_h[COL_TEXT][codepoint];
+        else char_h = TTF_FontHeight(font);
         if (adv == 0 && fallback_adv > 0) adv = fallback_adv;
     } else {
         if (TTF_GlyphMetrics32(font, codepoint, NULL, NULL, NULL, NULL, &adv) != 0) {
@@ -403,12 +405,12 @@ int main(int argc, char **argv) {
         const char *p_render_iter = text_to_type;
         const char *p_text_end_for_render = text_to_type + final_text_len;
         int lines_on_screen_count = 0;
-        bool first_line_in_viewport_counted = false;
+        bool first_line_in_viewport_started_rendering = false;
 
 
         while(p_render_iter < p_text_end_for_render) {
             if (lines_on_screen_count >= DISPLAY_LINES &&
-                render_pen_y_on_screen >= text_viewport_top_y + DISPLAY_LINES * line_h) {
+                render_pen_y_on_screen >= text_viewport_top_y + (DISPLAY_LINES -1) * line_h + line_h/2 ) {
                 break;
             }
 
@@ -428,12 +430,12 @@ int main(int argc, char **argv) {
                 final_cursor_draw_y_baseline = render_pen_y_on_screen;
             }
 
-            bool new_line_started_on_screen = false;
+            bool line_advanced_due_to_wrap_or_newline = false;
             if (render_block.is_newline) {
                 render_current_line_abs_y += line_h;
                 render_pen_y_on_screen = text_viewport_top_y + render_current_line_abs_y - scroll_offset_y;
                 render_pen_x = TEXT_AREA_X;
-                new_line_started_on_screen = true;
+                line_advanced_due_to_wrap_or_newline = true;
 
             } else {
                 if (render_pen_x + render_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W &&
@@ -441,24 +443,30 @@ int main(int argc, char **argv) {
                     render_current_line_abs_y += line_h;
                     render_pen_y_on_screen = text_viewport_top_y + render_current_line_abs_y - scroll_offset_y;
                     render_pen_x = TEXT_AREA_X;
-                    new_line_started_on_screen = true;
+                    line_advanced_due_to_wrap_or_newline = true;
                 }
 
                 bool block_is_visible_vertically = (render_pen_y_on_screen + line_h > text_viewport_top_y - line_h/2 &&
                                                     render_pen_y_on_screen < text_viewport_top_y + DISPLAY_LINES * line_h + line_h/2);
 
                 if (block_is_visible_vertically) {
-                    if (new_line_started_on_screen || !first_line_in_viewport_counted) {
+                    if (line_advanced_due_to_wrap_or_newline || !first_line_in_viewport_started_rendering) {
                          if (render_pen_y_on_screen >= text_viewport_top_y - line_h/2 &&
                              render_pen_y_on_screen < text_viewport_top_y + DISPLAY_LINES * line_h + line_h/2) {
-                            if (!first_line_in_viewport_counted) {
+                            if (!first_line_in_viewport_started_rendering) {
                                 lines_on_screen_count = 1;
-                                first_line_in_viewport_counted = true;
-                            } else if (new_line_started_on_screen) {
+                                first_line_in_viewport_started_rendering = true;
+                            } else if (line_advanced_due_to_wrap_or_newline) {
                                 lines_on_screen_count++;
                             }
                         }
                     }
+
+                    // Виправлено: Переміщено мітку end_render_loop_label_main_outer сюди,
+                    // але краще використовувати break або умови циклу.
+                    // Поки що залишаємо goto, але це не найкраща практика.
+                    // Фактично, goto тут не потрібен, якщо зовнішній цикл має правильну умову.
+                    if (lines_on_screen_count > DISPLAY_LINES) break; // Замість goto
 
                     if (!render_block.is_tab) {
                         const char *p_char_in_block_iter = render_block.start_ptr;
@@ -477,36 +485,31 @@ int main(int argc, char **argv) {
                             }
 
                             int glyph_w_render_val = 0, glyph_h_render_val = 0;
-                            // Виправлено: виклик get_codepoint_advance_and_metrics без зайвого аргументу (SDL_Color)
                             int adv_render = get_codepoint_advance_and_metrics(font, codepoint_to_render, space_advance_width_val,
                                                                         &glyph_w_render_val, &glyph_h_render_val,
                                                                         glyph_adv_cache, glyph_w_cache, glyph_h_cache);
 
+                            bool emergency_char_wrap_occurred = false;
                             if (render_pen_x + adv_render > TEXT_AREA_X + TEXT_AREA_W && render_pen_x != TEXT_AREA_X) {
                                 render_current_line_abs_y += line_h;
                                 render_pen_y_on_screen = text_viewport_top_y + render_current_line_abs_y - scroll_offset_y;
                                 render_pen_x = TEXT_AREA_X;
-                                bool inner_new_line_started = true; // Позначка для внутрішнього переносу
+                                emergency_char_wrap_occurred = true;
                                 if (char_abs_byte_pos_render == current_input_byte_idx) {
                                     final_cursor_draw_x = render_pen_x;
                                     final_cursor_draw_y_baseline = render_pen_y_on_screen;
                                 }
-                                 if(render_pen_y_on_screen >= text_viewport_top_y - line_h/2 && render_pen_y_on_screen < text_viewport_top_y + DISPLAY_LINES * line_h + line_h/2) {
-                                    if (!first_line_in_viewport_counted && render_pen_y_on_screen >= text_viewport_top_y - line_h/2) { // Якщо це перший рядок у viewport
-                                        lines_on_screen_count = 1;
-                                        first_line_in_viewport_counted = true;
-                                    } else if (first_line_in_viewport_counted && inner_new_line_started) {
-                                         lines_on_screen_count++;
-                                    }
-                                }
-                                if (lines_on_screen_count > DISPLAY_LINES && render_pen_y_on_screen >= text_viewport_top_y + DISPLAY_LINES * line_h) goto end_render_loop_label_main_inner;
+                                 if (block_is_visible_vertically && emergency_char_wrap_occurred) {
+                                     lines_on_screen_count++;
+                                 }
+                                if (lines_on_screen_count > DISPLAY_LINES) goto end_render_loop_label_main_inner;
                             }
-                            if (lines_on_screen_count > DISPLAY_LINES && render_pen_y_on_screen >= text_viewport_top_y + DISPLAY_LINES * line_h) goto end_render_loop_label_main_inner;
+                            if (lines_on_screen_count > DISPLAY_LINES && render_pen_y_on_screen >= text_viewport_top_y + DISPLAY_LINES * line_h ) goto end_render_loop_label_main_inner;
 
 
                             SDL_Color char_render_color;
                             bool is_char_typed = char_abs_byte_pos_render < current_input_byte_idx;
-                            bool is_char_correct_val = false; // Виправлено: ініціалізація та область видимості
+                            bool is_char_correct_val = false;
 
                             if (is_char_typed) {
                                 size_t len_of_current_glyph_bytes = p_char_in_block_iter - current_glyph_render_start_ptr;
@@ -522,7 +525,7 @@ int main(int argc, char **argv) {
                                 SDL_Texture* tex_to_render_final = NULL;
                                 bool rendered_on_the_fly = false;
                                 if (codepoint_to_render < 128) {
-                                    int col_idx_for_cache_lookup; // Виправлено: логіка визначення індексу кольору
+                                    int col_idx_for_cache_lookup;
                                     if (is_char_typed) {
                                         col_idx_for_cache_lookup = is_char_correct_val ? COL_CORRECT : COL_INCORRECT;
                                     } else {
@@ -534,7 +537,7 @@ int main(int argc, char **argv) {
                                     SDL_Surface* surf_otf = TTF_RenderGlyph32_Blended(font, codepoint_to_render, char_render_color);
                                     if (surf_otf) {
                                         tex_to_render_final = SDL_CreateTextureFromSurface(ren, surf_otf);
-                                        glyph_w_render_val = surf_otf->w; glyph_h_render_val = surf_otf->h;
+                                        if(tex_to_render_final) {glyph_w_render_val = surf_otf->w; glyph_h_render_val = surf_otf->h;}
                                         SDL_FreeSurface(surf_otf);
                                         rendered_on_the_fly = true;
                                     }
@@ -555,8 +558,8 @@ int main(int argc, char **argv) {
                         render_pen_x += render_block.pixel_width;
                     }
                 }
-                 else if (render_pen_y_on_screen >= text_viewport_top_y + DISPLAY_LINES * line_h + line_h/2){
-                    goto end_render_loop_label_main_outer;
+                 else if (first_line_in_viewport_started_rendering && lines_on_screen_count >= DISPLAY_LINES){
+                    goto end_render_loop_label_main_outer; // Вихід з основного циклу рендерингу
                 }
             }
 
@@ -565,7 +568,7 @@ int main(int argc, char **argv) {
                 final_cursor_draw_y_baseline = render_pen_y_on_screen;
             }
         }
-        end_render_loop_label_main_outer:;
+        end_render_loop_label_main_outer:; // Визначення мітки тут
 
 
         if (show_cursor && current_input_byte_idx <= final_text_len) {
