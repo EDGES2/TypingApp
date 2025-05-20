@@ -24,6 +24,8 @@
 #define CURSOR_TARGET_VIEWPORT_LINE 1 
 #define TAB_SIZE_IN_SPACES 4
 
+#define ENABLE_DETAILED_LOGGING 0 // Set to 1 to enable verbose logging, 0 to disable
+
 // Color palette indices
 enum { COL_BG, COL_TEXT, COL_CORRECT, COL_INCORRECT, COL_CURSOR, N_COLORS };
 
@@ -58,8 +60,12 @@ static FILE *log_file = NULL;
 static bool predictive_scroll_triggered_for_this_input_idx = false;
 static int y_offset_due_to_prediction_for_current_idx = 0;
 
+// For accuracy calculation based on all keystrokes
+static unsigned long long total_keystrokes_for_accuracy = 0;
+static unsigned long long total_errors_committed_for_accuracy = 0;
 
-// --- Helper Function Definitions ---
+
+// --- Helper Function Definitions (All functions except main are defined before main) ---
 Sint32 decode_utf8(const char **s_ptr, const char *s_end_const_char) {
     if (!s_ptr || !*s_ptr || *s_ptr >= s_end_const_char) return 0;
     const unsigned char *s = (const unsigned char *)*s_ptr;
@@ -369,8 +375,11 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
     return processed_text;
 }
 
-void HandleAppEvents(SDL_Event *event, size_t *current_input_byte_idx, char *input_buffer, size_t final_text_len, bool *typing_started, Uint32 *start_time, bool *quit_flag) {
-    if (!event || !current_input_byte_idx || !input_buffer || !typing_started || !start_time || !quit_flag) return;
+void HandleAppEvents(SDL_Event *event, size_t *current_input_byte_idx,
+                     char *input_buffer, size_t final_text_len,
+                     const char* text_to_type,
+                     bool *typing_started, Uint32 *start_time, bool *quit_flag) {
+    if (!event || !current_input_byte_idx || !input_buffer || !typing_started || !start_time || !quit_flag || !text_to_type) return;
 
     while (SDL_PollEvent(event)) {
         if (event->type == SDL_QUIT) {
@@ -402,16 +411,55 @@ void HandleAppEvents(SDL_Event *event, size_t *current_input_byte_idx, char *inp
             }
         }
         if (event->type == SDL_TEXTINPUT) {
-            if (!(*typing_started) && final_text_len > 0) { *start_time = SDL_GetTicks(); *typing_started = true; }
-            size_t input_event_len = strlen(event->text.text);
-            if (*current_input_byte_idx + input_event_len <= final_text_len + 90 ) {
+            if (!(*typing_started) && final_text_len > 0) {
+                *start_time = SDL_GetTicks();
+                *typing_started = true;
+                total_keystrokes_for_accuracy = 0;
+                total_errors_committed_for_accuracy = 0;
+            }
+
+            size_t input_event_len_bytes = strlen(event->text.text);
+
+            const char* p_event_char_iter = event->text.text;
+            const char* event_text_end = event->text.text + input_event_len_bytes;
+            size_t current_target_byte_offset_for_event = *current_input_byte_idx;
+
+            while(p_event_char_iter < event_text_end) {
+                const char* p_event_char_start_loop = p_event_char_iter;
+                Sint32 cp_event = decode_utf8(&p_event_char_iter, event_text_end);
+                if (cp_event <=0) { if (p_event_char_iter < event_text_end) p_event_char_iter++; else break; continue;}
+
+                total_keystrokes_for_accuracy++;
+
+                if (current_target_byte_offset_for_event < final_text_len) {
+                    const char* p_target_char_at_offset = text_to_type + current_target_byte_offset_for_event;
+                    Sint32 cp_target = decode_utf8(&p_target_char_at_offset, text_to_type + final_text_len);
+
+                    if (cp_target <=0 || cp_event != cp_target) {
+                        total_errors_committed_for_accuracy++;
+                    }
+
+                    if(cp_target > 0) {
+                        current_target_byte_offset_for_event = (size_t)(p_target_char_at_offset - text_to_type);
+                    } else {
+                         current_target_byte_offset_for_event++;
+                    }
+                } else {
+                    total_errors_committed_for_accuracy++;
+                    current_target_byte_offset_for_event++;
+                }
+                if (p_event_char_iter == p_event_char_start_loop && p_event_char_iter < event_text_end) p_event_char_iter++;
+            }
+
+
+            if (*current_input_byte_idx + input_event_len_bytes <= final_text_len + 90 ) {
                 bool can_add_input = true;
-                if(input_event_len == 1 && event->text.text[0] == ' ' && *current_input_byte_idx > 0){
+                if(input_event_len_bytes == 1 && event->text.text[0] == ' ' && *current_input_byte_idx > 0){
                     if(input_buffer[(*current_input_byte_idx)-1] == ' ') can_add_input = false;
                 }
                 if(can_add_input){
-                   strncat(input_buffer, event->text.text, input_event_len);
-                   (*current_input_byte_idx) += input_event_len;
+                   strncat(input_buffer, event->text.text, input_event_len_bytes);
+                   (*current_input_byte_idx) += input_event_len_bytes;
                 }
             }
         }
@@ -462,76 +510,56 @@ void RenderLiveStats(AppContext *appCtx, Uint32 current_ticks, Uint32 start_time
                      const char *input_buffer, size_t current_input_byte_idx,
                      int timer_x_pos, int timer_width, int timer_y_pos, int timer_height) {
 
-    if (!appCtx || !appCtx->font || !appCtx->ren || !typing_started_main || current_input_byte_idx == 0) {
+    if (!appCtx || !appCtx->font || !appCtx->ren || !typing_started_main ) {
         return;
     }
 
     float elapsed_seconds = (float)(current_ticks - start_time_ticks) / 1000.0f;
-    if (elapsed_seconds < 0.05f) elapsed_seconds = 0.05f;
+    if (elapsed_seconds < 0.05f && total_keystrokes_for_accuracy > 0) elapsed_seconds = 0.05f;
+    else if (elapsed_seconds < 0.001f) elapsed_seconds = 0.001f;
+
     float elapsed_minutes = elapsed_seconds / 60.0f;
 
-    size_t live_correct_chars_count = 0;
-    size_t live_typed_utf8_chars_count = 0;
-
-    const char* p_text_iter_live = text_to_type;
-    const char* p_input_iter_live = input_buffer;
-    const char* input_buffer_end = input_buffer + current_input_byte_idx;
-    const char* text_to_type_end = text_to_type + strlen(text_to_type);
-
-    live_typed_utf8_chars_count = CountUTF8Chars(input_buffer, current_input_byte_idx);
-
-    p_text_iter_live = text_to_type;
-    p_input_iter_live = input_buffer;
-
-    while (p_input_iter_live < input_buffer_end && p_text_iter_live < text_to_type_end) {
-        const char* p_input_char_start = p_input_iter_live;
-        const char* p_text_char_start = p_text_iter_live;
-
-        Sint32 cp_input = decode_utf8(&p_input_iter_live, input_buffer_end);
-        Sint32 cp_text  = decode_utf8(&p_text_iter_live, text_to_type_end);
-
-        if (cp_input <= 0) break;
-        if (cp_text <= 0 && cp_input > 0) break;
-
-        if (cp_input == cp_text) {
-            live_correct_chars_count++;
-        }
-
-        if (p_input_iter_live == p_input_char_start && p_input_iter_live < input_buffer_end) p_input_iter_live++;
-        if (p_text_iter_live == p_text_char_start && p_text_iter_live < text_to_type_end) p_text_iter_live++;
-        if (p_input_iter_live == p_input_char_start && p_text_iter_live == p_text_char_start && p_input_iter_live < input_buffer_end) break;
+    float live_accuracy = 100.0f;
+    if (total_keystrokes_for_accuracy > 0) {
+        live_accuracy = ((float)(total_keystrokes_for_accuracy - total_errors_committed_for_accuracy) / (float)total_keystrokes_for_accuracy) * 100.0f;
+        if (live_accuracy < 0) live_accuracy = 0;
     }
 
-    float live_accuracy = 0.0f;
-    if (live_typed_utf8_chars_count > 0) {
-        live_accuracy = ((float)live_correct_chars_count / (float)live_typed_utf8_chars_count) * 100.0f;
-    }
-    if (live_accuracy > 100.0f) live_accuracy = 100.0f;
-
-    float live_net_words_for_wpm = (float)live_correct_chars_count / 5.0f;
+    size_t live_correct_keystrokes = (total_keystrokes_for_accuracy > total_errors_committed_for_accuracy) ? (total_keystrokes_for_accuracy - total_errors_committed_for_accuracy) : 0;
+    float live_net_words_for_wpm = (float)live_correct_keystrokes / 5.0f;
     float live_wpm = (elapsed_minutes > 0.0001f) ? (live_net_words_for_wpm / elapsed_minutes) : 0.0f;
 
     int live_typed_words_count = 0;
-    bool in_word_flag = false;
-    const char* p_word_scan_iter = input_buffer;
-    const char* p_word_scan_end_iter = input_buffer + current_input_byte_idx;
-    while(p_word_scan_iter < p_word_scan_end_iter) {
-        const char* temp_p_word = p_word_scan_iter;
-        Sint32 cp_word = decode_utf8(&p_word_scan_iter, p_word_scan_end_iter);
-        if (cp_word <= 0) {
-            if (p_word_scan_iter < p_word_scan_end_iter) p_word_scan_iter++; else break;
-            continue;
-        }
-
-        if (!isspace((unsigned char)cp_word)) {
-            if (!in_word_flag) {
-                live_typed_words_count++;
-                in_word_flag = true;
+    if (current_input_byte_idx > 0) {
+        bool in_word_flag = false;
+        const char* p_word_scan_iter = input_buffer;
+        const char* p_word_scan_end_iter = input_buffer + current_input_byte_idx;
+        while(p_word_scan_iter < p_word_scan_end_iter) {
+            const char* temp_p_word = p_word_scan_iter;
+            Sint32 cp_word = decode_utf8(&p_word_scan_iter, p_word_scan_end_iter);
+            if (cp_word <= 0) {
+                if (p_word_scan_iter < p_word_scan_end_iter) p_word_scan_iter++; else break;
+                continue;
             }
-        } else {
-            in_word_flag = false;
+
+            bool is_current_char_space = false;
+            if (cp_word < 128) {
+                is_current_char_space = isspace((unsigned char)cp_word);
+            } else {
+                is_current_char_space = false;
+            }
+
+            if (!is_current_char_space) {
+                if (!in_word_flag) {
+                    live_typed_words_count++;
+                    in_word_flag = true;
+                }
+            } else {
+                in_word_flag = false;
+            }
+             if (p_word_scan_iter == temp_p_word && p_word_scan_iter < p_word_scan_end_iter) p_word_scan_iter++;
         }
-         if (p_word_scan_iter == temp_p_word && p_word_scan_iter < p_word_scan_end_iter) p_word_scan_iter++;
     }
 
     char wpm_buf[32], acc_buf[32], words_buf[32];
@@ -582,6 +610,50 @@ void RenderLiveStats(AppContext *appCtx, Uint32 current_ticks, Uint32 start_time
 }
 
 
+void CalculateAndPrintAppStats(Uint32 start_time_ms, size_t current_input_byte_idx,
+                               const char *text_to_type, size_t final_text_len,
+                               const char *input_buffer) {
+    if (!typing_started_main) {
+        printf("No typing done. No stats to display.\n");
+        return;
+    }
+     if (total_keystrokes_for_accuracy == 0 && current_input_byte_idx == 0) {
+        printf("No characters typed. No stats to display.\n");
+        return;
+    }
+
+    Uint32 end_time_ms = SDL_GetTicks();
+    float time_taken_seconds = (float)(end_time_ms - start_time_ms) / 1000.0f;
+
+    if (time_taken_seconds <= 0.001f && total_keystrokes_for_accuracy == 0) {
+        printf("Time taken is too short or no characters typed for meaningful stats.\n");
+        return;
+    }
+     if (time_taken_seconds <= 0.001f) time_taken_seconds = 0.001f;
+
+    size_t final_correct_keystrokes = (total_keystrokes_for_accuracy > total_errors_committed_for_accuracy) ?
+                                      (total_keystrokes_for_accuracy - total_errors_committed_for_accuracy) : 0;
+
+    float net_words = (float)final_correct_keystrokes / 5.0f;
+    float wpm = (time_taken_seconds > 0.0001f) ? (net_words / time_taken_seconds) * 60.0f : 0.0f;
+
+    float accuracy = 0.0f;
+    if (total_keystrokes_for_accuracy > 0) {
+         accuracy = ((float)final_correct_keystrokes / (float)total_keystrokes_for_accuracy) * 100.0f;
+    }
+     if (accuracy < 0.0f) accuracy = 0.0f;
+     if (accuracy > 100.0f && total_keystrokes_for_accuracy > 0) accuracy = 100.0f;
+
+    printf("\n--- Typing Stats (Final) ---\n");
+    printf("Time Taken: %.2f seconds\n", time_taken_seconds);
+    printf("WPM (Net): %.2f\n", wpm);
+    printf("Correct Keystrokes: %llu\n", final_correct_keystrokes);
+    printf("Total Keystrokes: %llu\n", total_keystrokes_for_accuracy);
+    printf("Committed Errors: %llu\n", total_errors_committed_for_accuracy);
+    printf("Accuracy (based on all keystrokes): %.2f%%\n", accuracy);
+    printf("--------------------\n");
+}
+
 void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t final_text_len, size_t current_input_byte_idx,
                            int *out_cursor_abs_y, int *out_cursor_exact_x) {
     if (!appCtx || !text_to_type || !out_cursor_abs_y || !out_cursor_exact_x) return;
@@ -599,7 +671,9 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
     if (current_input_byte_idx == 0) {
         *out_cursor_abs_y = 0;
         *out_cursor_exact_x = TEXT_AREA_X;
-        if (log_file && (current_input_byte_idx > 90)) fprintf(log_file, "[CalculateCursorLayout] OUTPUT (idx 0): final_abs_y: %d, final_exact_x: %d\n", *out_cursor_abs_y, *out_cursor_exact_x);
+        #if ENABLE_DETAILED_LOGGING
+        if (log_file) fprintf(log_file, "[CalculateCursorLayout] OUTPUT (idx 0): final_abs_y: %d, final_exact_x: %d\n", *out_cursor_abs_y, *out_cursor_exact_x);
+        #endif
         return;
     }
 
@@ -613,7 +687,8 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
 
         TextBlockInfo current_block = get_next_text_block_func(appCtx, &p_iter, p_end, pen_x_at_block_start);
 
-        if (log_file && ( (current_input_byte_idx >= 50 && current_input_byte_idx <= 65) || loop_iteration_count < 25 || current_input_byte_idx > 90 ) ) {
+        #if ENABLE_DETAILED_LOGGING
+        if (log_file) {
            char block_preview[21];
            size_t preview_len = current_block.num_bytes < 20 ? current_block.num_bytes : 20;
            if (current_block.start_ptr) {
@@ -628,6 +703,7 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
                   loop_iteration_count, current_input_byte_idx, block_start_offset, bytes_at_block_start, current_block.num_bytes, block_preview,
                   current_block.is_newline, current_block.is_word, line_y_at_block_start, pen_x_at_block_start, current_block.pixel_width);
         }
+        #endif
 
         if (current_block.num_bytes == 0) { if(p_iter < p_end) p_iter++; else break; continue; }
 
@@ -646,6 +722,7 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
             current_line_abs_y = y_for_chars_in_this_block;
         }
 
+        #if ENABLE_DETAILED_LOGGING
         if (log_file && line_y_at_block_start != current_line_abs_y && !current_block.is_newline && current_block.start_ptr ) {
              char block_preview_ch[11]; strncpy(block_preview_ch, current_block.start_ptr, 10); block_preview_ch[10] = '\0';
              for(int k=0; k<10 && block_preview_ch[k]!='\0'; ++k) if(iscntrl((unsigned char)block_preview_ch[k]) && block_preview_ch[k] != '\n' && block_preview_ch[k] != '\t') block_preview_ch[k] = '?';
@@ -657,6 +734,7 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
              fprintf(log_file, "  [CalcLayout Iter %d] Newline block: y_start_block %d, new_current_line_abs_y %d. BY BLOCK: '%s'\n",
                     loop_iteration_count, line_y_at_block_start, current_line_abs_y, block_preview_ch);
         }
+        #endif
 
 
         if (!cursor_position_found && current_block.start_ptr && current_input_byte_idx >= bytes_at_block_start &&
@@ -705,7 +783,7 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
     *out_cursor_abs_y = calculated_cursor_y;
     *out_cursor_exact_x = calculated_cursor_x;
 
-    if (log_file && (current_input_byte_idx > 90)) {
+    if (log_file && (current_input_byte_idx > 90)) { // Keep this main output log
         fprintf(log_file, "[CalculateCursorLayout] OUTPUT for idx %zu: final_abs_y: %d (line ~%d), final_exact_x: %d\n",
                 current_input_byte_idx, *out_cursor_abs_y, (appCtx->line_h > 0 ? *out_cursor_abs_y / appCtx->line_h : -1) , *out_cursor_exact_x);
     }
@@ -721,7 +799,7 @@ void UpdateVisibleLine(int y_coord_for_update, int line_h_val, int *first_visibl
         if (*first_visible_line_num_ptr < 0) {
             *first_visible_line_num_ptr = 0;
         }
-        if (log_file && old_first_visible != *first_visible_line_num_ptr) {
+        if (log_file && old_first_visible != *first_visible_line_num_ptr) { // Keep this log
             fprintf(log_file, "[UpdateVisibleLine] y_coord_for_update: %d (line_idx: %d), TARGET_VIEWPORT_LINE: %d => new_first_visible_line: %d (old: %d)\n",
                    y_coord_for_update, line_idx_for_update, CURSOR_TARGET_VIEWPORT_LINE, *first_visible_line_num_ptr, old_first_visible);
         }
@@ -937,70 +1015,6 @@ void RenderAppCursor(AppContext *appCtx, bool show_cursor,
     }
 }
 
-void CalculateAndPrintAppStats(Uint32 start_time_ms, size_t current_input_byte_idx,
-                               const char *text_to_type, size_t final_text_len,
-                               const char *input_buffer) {
-    if (current_input_byte_idx == 0 || !typing_started_main) {
-        printf("No typing done or timer not started. No stats to display.\n");
-        return;
-    }
-
-    Uint32 end_time_ms = SDL_GetTicks();
-    float time_taken_seconds = (float)(end_time_ms - start_time_ms) / 1000.0f;
-
-    if (time_taken_seconds <= 0.001f) {
-        printf("Time taken is too short for meaningful stats.\n");
-        return;
-    }
-    
-    int final_correct_chars_count = 0;
-    size_t total_user_typed_utf8_chars_count = 0; 
-    
-    const char* input_buffer_end = input_buffer + current_input_byte_idx;
-    const char* text_to_type_end = text_to_type + final_text_len; 
-
-    total_user_typed_utf8_chars_count = CountUTF8Chars(input_buffer, current_input_byte_idx);
-
-    const char* p_input_final = input_buffer; 
-    const char* p_text_final = text_to_type;  
-    
-    while (p_input_final < input_buffer_end && p_text_final < text_to_type_end) {
-        const char* p_input_char_start = p_input_final;
-        const char* p_text_char_start = p_text_final;
-
-        Sint32 cp_input = decode_utf8(&p_input_final, input_buffer_end);
-        Sint32 cp_text  = decode_utf8(&p_text_final, text_to_type_end);
-
-        if (cp_input <= 0) break; 
-        if (cp_text <= 0 && cp_input > 0) break; 
-        
-        if (cp_input == cp_text) {
-             final_correct_chars_count++;
-        }
-        
-        if (p_input_final == p_input_char_start && p_input_final < input_buffer_end) p_input_final++;
-        if (p_text_final == p_text_char_start && p_text_final < text_to_type_end) p_text_final++;
-        if (p_input_final == p_input_char_start && p_text_final == p_text_char_start && p_input_final < input_buffer_end) break; 
-    }
-
-    float net_words = (float)final_correct_chars_count / 5.0f;
-    float wpm = (time_taken_seconds > 0.0001f) ? (net_words / time_taken_seconds) * 60.0f : 0.0f;
-    
-    float accuracy = 0.0f;
-    if (total_user_typed_utf8_chars_count > 0) { 
-         accuracy = ((float)final_correct_chars_count / (float)total_user_typed_utf8_chars_count) * 100.0f;
-    }
-    if (accuracy > 100.0f) accuracy = 100.0f;
-
-    printf("\n--- Typing Stats (Final) ---\n");
-    printf("Time Taken: %.2f seconds\n", time_taken_seconds);
-    printf("WPM (Net): %.2f\n", wpm);
-    printf("Correct Characters (UTF-8): %d\n", final_correct_chars_count);
-    printf("Typed Characters (UTF-8): %zu\n", total_user_typed_utf8_chars_count);
-    printf("Accuracy: %.2f%%\n", accuracy);
-    printf("--------------------\n");
-}
-
 // --- Main Function ---
 int main(int argc, char **argv) {
     log_file = fopen("logs.txt", "w");
@@ -1110,9 +1124,9 @@ int main(int argc, char **argv) {
 
     while (!quit_game_flag) {
         SDL_Event event_main_loop;
-        size_t old_input_idx = current_input_byte_idx_main; 
+        size_t old_input_idx = current_input_byte_idx_main;
 
-        HandleAppEvents(&event_main_loop, &current_input_byte_idx_main, input_buffer, final_text_len_val, &typing_started_main, &start_time_main, &quit_game_flag);
+        HandleAppEvents(&event_main_loop, &current_input_byte_idx_main, input_buffer, final_text_len_val, text_to_type, &typing_started_main, &start_time_main, &quit_game_flag);
 
         if (quit_game_flag) break;
 
@@ -1127,11 +1141,11 @@ int main(int argc, char **argv) {
         SDL_RenderClear(appCtx.ren);
 
         int timer_h_val = 0;
-        int timer_w_val = 0; 
+        int timer_w_val = 0;
         RenderAppTimer(&appCtx, typing_started_main ? (SDL_GetTicks() - start_time_main) : 0, &timer_h_val, &timer_w_val);
-        
+
         RenderLiveStats(&appCtx, SDL_GetTicks(), start_time_main,
-                        text_to_type, 
+                        text_to_type,
                         input_buffer, current_input_byte_idx_main,
                         TEXT_AREA_X, timer_w_val, TEXT_AREA_PADDING_Y, timer_h_val);
 
@@ -1146,12 +1160,14 @@ int main(int argc, char **argv) {
 
         if (predictive_scroll_triggered_for_this_input_idx) {
             y_for_scroll_update = logical_cursor_abs_y + y_offset_due_to_prediction_for_current_idx;
+            #if ENABLE_DETAILED_LOGGING
             if (log_file && (current_input_byte_idx_main > 90)) {
                 fprintf(log_file, "[MainLoop] Maintaining predictive Y: current_idx=%zu, logical_y=%d, offset=%d, y_for_scroll=%d\n",
                         current_input_byte_idx_main, logical_cursor_abs_y, y_offset_due_to_prediction_for_current_idx, y_for_scroll_update);
             }
+            #endif
         } else {
-            y_for_scroll_update = logical_cursor_abs_y; 
+            y_for_scroll_update = logical_cursor_abs_y;
 
             if (appCtx.line_h > 0) {
                 int current_cursor_abs_line_idx = logical_cursor_abs_y / appCtx.line_h;
@@ -1159,21 +1175,21 @@ int main(int argc, char **argv) {
 
                 if (current_cursor_abs_line_idx == target_abs_line_for_cursor_in_viewport &&
                     current_input_byte_idx_main < final_text_len_val) {
-                    
-                    size_t next_logical_pos_idx = current_input_byte_idx_main + 1; 
-                                    
+
+                    size_t next_logical_pos_idx = current_input_byte_idx_main + 1;
+
                     if (next_logical_pos_idx <= final_text_len_val) {
                         int y_of_next_logical_pos, x_of_next_logical_pos;
                         CalculateCursorLayout(&appCtx, text_to_type, final_text_len_val, next_logical_pos_idx, &y_of_next_logical_pos, &x_of_next_logical_pos);
 
-                        if (y_of_next_logical_pos > logical_cursor_abs_y) { 
+                        if (y_of_next_logical_pos > logical_cursor_abs_y) {
                             int potential_new_first_visible = (y_of_next_logical_pos / appCtx.line_h) - CURSOR_TARGET_VIEWPORT_LINE;
                             if (potential_new_first_visible < 0) potential_new_first_visible = 0;
 
                             if (potential_new_first_visible > first_visible_abs_line_num_static) {
                                 y_for_scroll_update = y_of_next_logical_pos;
                                 y_offset_due_to_prediction_for_current_idx = y_of_next_logical_pos - logical_cursor_abs_y;
-                                predictive_scroll_triggered_for_this_input_idx = true; 
+                                predictive_scroll_triggered_for_this_input_idx = true;
                                 if (log_file && (current_input_byte_idx_main > 90)) {
                                     fprintf(log_file, "[MainLoop] Predictive scroll ACTIVATED: current_idx=%zu (y=%d), next_idx_check=%zu (y_next=%d). Using y_next=%d for scroll. Offset=%d. PotentialNewFirstVis=%d, CurrentFirstVis=%d\n",
                                             current_input_byte_idx_main, logical_cursor_abs_y, next_logical_pos_idx, y_of_next_logical_pos, y_for_scroll_update, y_offset_due_to_prediction_for_current_idx, potential_new_first_visible, first_visible_abs_line_num_static);
@@ -1184,7 +1200,7 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        
+
         int current_first_visible_for_log = first_visible_abs_line_num_static;
         UpdateVisibleLine(y_for_scroll_update, appCtx.line_h, &first_visible_abs_line_num_static);
 
