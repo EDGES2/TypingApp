@@ -52,7 +52,7 @@ typedef struct {
 // --- Глобальні статичні змінні ---
 static int first_visible_abs_line_num_static = 0;
 static bool typing_started_main = false;
-static FILE *log_file = nullptr; // Замінено nullptrptr на nullptr для C
+static FILE *log_file = NULL; // Замінено nullptrptr на nullptr для C, та ініціалізовано NULL
 
 // --- Допоміжні функції ---
 Sint32 decode_utf8(const char **s_ptr, const char *s_end_const_char) {
@@ -99,7 +99,7 @@ int get_codepoint_advance_and_metrics_func(AppContext *appCtx, Uint32 codepoint,
         else char_h = TTF_FontHeight(appCtx->font);
         if (adv == 0 && fallback_adv > 0) adv = fallback_adv;
     } else {
-        if (TTF_GlyphMetrics32(appCtx->font, codepoint, nullptr, nullptr, nullptr, nullptr, &adv) != 0) { // Замінено nullptrptr на nullptr
+        if (TTF_GlyphMetrics32(appCtx->font, codepoint, NULL, NULL, NULL, NULL, &adv) != 0) { // Замінено nullptr на NULL
             adv = fallback_adv;
         }
         char_w = adv;
@@ -115,7 +115,7 @@ int get_codepoint_advance_and_metrics_func(AppContext *appCtx, Uint32 codepoint,
 // Оновлена версія get_next_text_block_func
 TextBlockInfo get_next_text_block_func(AppContext *appCtx, const char **text_parser_ptr_ref, const char *text_end,
                                        int current_pen_x_for_tab_calc) {
-    TextBlockInfo block = {nullptr}; // Ініціалізація нулями
+    TextBlockInfo block = {NULL}; // Ініціалізація нулями
     if (!text_parser_ptr_ref || !*text_parser_ptr_ref || *text_parser_ptr_ref >= text_end || !appCtx || !appCtx->font) {
         return block;
     }
@@ -129,13 +129,12 @@ TextBlockInfo get_next_text_block_func(AppContext *appCtx, const char **text_par
     if (first_cp_in_block <= 0) {
         if (*text_parser_ptr_ref == p_initial_for_block && *text_parser_ptr_ref < text_end) {
             (*text_parser_ptr_ref)++;
-        } else if (temp_scanner > *text_parser_ptr_ref) { // Якщо decode_utf8 таки зміг просунути temp_scanner (наприклад, для помилкового байта)
+        } else if (temp_scanner > *text_parser_ptr_ref) {
              *text_parser_ptr_ref = temp_scanner;
         }
         block.num_bytes = (size_t)(*text_parser_ptr_ref - block.start_ptr);
         return block;
     }
-    // *text_parser_ptr_ref не змінювався тут, бо decode_utf8 працював з temp_scanner
 
     if (first_cp_in_block == '\n') {
         block.is_newline = true;
@@ -157,20 +156,19 @@ TextBlockInfo get_next_text_block_func(AppContext *appCtx, const char **text_par
         block.is_word = !first_char_was_space;
 
         while(*text_parser_ptr_ref < text_end) {
-            const char* char_scan_start = *text_parser_ptr_ref;
-            const char* peek_ptr = *text_parser_ptr_ref; // "Заглядаємо" наперед
+            // const char* char_scan_start = *text_parser_ptr_ref; // ВИДАЛЕНО: Змінна не використовувалася
+            const char* peek_ptr = *text_parser_ptr_ref;
             Sint32 cp = decode_utf8(&peek_ptr, text_end);
 
             if (cp <= 0 || cp == '\n' || cp == '\t') {
                 break;
             }
             bool current_char_is_space = (cp == ' ');
-            if (current_char_is_space != first_char_was_space) { // Тип символу змінився
+            if (current_char_is_space != first_char_was_space) {
                 break;
             }
-            // Символ того ж типу, просуваємо основний вказівник
-            *text_parser_ptr_ref = peek_ptr; // Оновлюємо основний вказівник тим, що просунув peek_ptr
-            block.pixel_width += get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp, appCtx->space_advance_width, nullptr, nullptr);
+            *text_parser_ptr_ref = peek_ptr;
+            block.pixel_width += get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp, appCtx->space_advance_width, NULL, NULL);
         }
     }
     block.num_bytes = (size_t)(*text_parser_ptr_ref - block.start_ptr);
@@ -185,7 +183,7 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL_Init error: %s\n", SDL_GetError()); return false; }
     if (TTF_Init() != 0) { fprintf(stderr, "TTF_Init error: %s\n", TTF_GetError()); SDL_Quit(); return false; }
-    TTF_SetFontHinting(nullptr, TTF_HINTING_LIGHT);
+    TTF_SetFontHinting(NULL, TTF_HINTING_LIGHT); // Використання NULL є валідним
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
     appCtx->win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_W, WINDOW_H, SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
@@ -199,8 +197,8 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
     float scale_x = (float)physW_val / WINDOW_W; float scale_y = (float)physH_val / WINDOW_H;
     SDL_RenderSetScale(appCtx->ren, scale_x, scale_y);
 
-    const char* font_paths[] = { "Arial.ttf", "/System/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Unicode.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", nullptr };
-    for (int i = 0; font_paths[i] != nullptr; ++i) {
+    const char* font_paths[] = { "Arial.ttf", "/System/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Unicode.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", NULL };
+    for (int i = 0; font_paths[i] != NULL; ++i) {
         #if SDL_TTF_VERSION_ATLEAST(2,20,0)
             appCtx->font = TTF_OpenFontDPI(font_paths[i], FONT_SIZE, (int)(72 * scale_x), (int)(72 * scale_y));
         #else
@@ -227,7 +225,7 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
 
     for (int c = 32; c < 127; c++) {
         int adv_val;
-        if (TTF_GlyphMetrics(appCtx->font, (Uint16)c, nullptr, nullptr, nullptr, nullptr, &adv_val) != 0) {
+        if (TTF_GlyphMetrics(appCtx->font, (Uint16)c, NULL, NULL, NULL, NULL, &adv_val) != 0) {
             adv_val = FONT_SIZE / 2;
         }
         appCtx->glyph_adv_cache[c] = (adv_val > 0) ? adv_val : FONT_SIZE/2;
@@ -244,7 +242,7 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
                  fprintf(stderr, "Warning: Failed to create texture for glyph %c (ASCII %d) color %d\n", c, c, col_idx);
             }
             SDL_FreeSurface(surf);
-            surf = nullptr;
+            surf = NULL; // Добра практика
         }
     }
     appCtx->space_advance_width = appCtx->glyph_adv_cache[' '];
@@ -261,13 +259,13 @@ void CleanupApp(AppContext *appCtx) {
         for (int col = COL_TEXT; col <= COL_INCORRECT; col++) {
             if (appCtx->glyph_tex_cache[col][c]) {
                 SDL_DestroyTexture(appCtx->glyph_tex_cache[col][c]);
-                appCtx->glyph_tex_cache[col][c] = nullptr;
+                appCtx->glyph_tex_cache[col][c] = NULL;
             }
         }
     }
-    if (appCtx->font) { TTF_CloseFont(appCtx->font); appCtx->font = nullptr; }
-    if (appCtx->ren) { SDL_DestroyRenderer(appCtx->ren); appCtx->ren = nullptr; }
-    if (appCtx->win) { SDL_DestroyWindow(appCtx->win); appCtx->win = nullptr; }
+    if (appCtx->font) { TTF_CloseFont(appCtx->font); appCtx->font = NULL; }
+    if (appCtx->ren) { SDL_DestroyRenderer(appCtx->ren); appCtx->ren = NULL; }
+    if (appCtx->win) { SDL_DestroyWindow(appCtx->win); appCtx->win = NULL; }
     TTF_Quit();
     SDL_Quit();
 }
@@ -277,7 +275,7 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
     if (!processed_text) {
         perror("Failed to allocate memory for processed_text in PreprocessText");
         if(out_final_text_len) *out_final_text_len = 0;
-        return nullptr;
+        return NULL;
     }
 
     size_t pt_idx = 0;
@@ -308,9 +306,9 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
             if (pt_idx > 0 && processed_text[pt_idx-1] == ' ') {
                 pt_idx--;
             }
-            if (newlines_in_a_row == 1 && pt_idx > 0 ) { // Тільки якщо це не перший символ і це перший \n підряд
+            if (newlines_in_a_row == 1 && pt_idx > 0 ) {
                 if (pt_idx < raw_text_len) processed_text[pt_idx++] = '\n'; else break;
-            } else if (pt_idx == 0 && newlines_in_a_row == 1 && !at_line_start ) { // Спеціальний випадок для першого \n
+            } else if (pt_idx == 0 && newlines_in_a_row == 1 && !at_line_start ) {
                  if (pt_idx < raw_text_len) processed_text[pt_idx++] = '\n'; else break;
             }
             at_line_start = true;
@@ -382,13 +380,13 @@ void HandleAppEvents(SDL_Event *event, size_t *current_input_byte_idx, char *inp
         if (event->type == SDL_TEXTINPUT) {
             if (!(*typing_started) && final_text_len > 0) { *start_time = SDL_GetTicks(); *typing_started = true; }
             size_t input_event_len = strlen(event->text.text);
-            if (*current_input_byte_idx + input_event_len <= final_text_len + 90 ) {
+            if (*current_input_byte_idx + input_event_len <= final_text_len + 90 ) { // Дозволяємо трохи більше введеного тексту, ніж оригінал
                 bool can_add_input = true;
                 if(input_event_len == 1 && event->text.text[0] == ' ' && *current_input_byte_idx > 0){
                     if(input_buffer[(*current_input_byte_idx)-1] == ' ') can_add_input = false;
                 }
                 if(can_add_input){
-                   strncat(input_buffer, event->text.text, input_event_len);
+                   strncat(input_buffer, event->text.text, input_event_len); // Використовуємо strncat для безпеки
                    (*current_input_byte_idx) += input_event_len;
                 }
             }
@@ -404,26 +402,25 @@ void RenderAppTimer(AppContext *appCtx, Uint32 elapsed_ms, int *out_timer_h) {
     char timer_buf[16];
     snprintf(timer_buf, sizeof(timer_buf), "%02d:%02d", m, s);
 
-    int current_timer_h_val = 0; // Ініціалізація
+    int current_timer_h_val = 0;
     SDL_Surface *timer_surf = TTF_RenderText_Blended(appCtx->font, timer_buf, appCtx->palette[COL_CURSOR]);
     if (timer_surf) {
         SDL_Texture *timer_tex = SDL_CreateTextureFromSurface(appCtx->ren, timer_surf);
         if (timer_tex) {
-             int current_timer_w = timer_surf->w; // Можна перемістити всередину, якщо потрібно
+             int current_timer_w = timer_surf->w;
              current_timer_h_val = timer_surf->h;
              SDL_Rect rtimer = { TEXT_AREA_X, TEXT_AREA_PADDING_Y, current_timer_w, current_timer_h_val };
-             SDL_RenderCopy(appCtx->ren, timer_tex, nullptr, &rtimer);
+             SDL_RenderCopy(appCtx->ren, timer_tex, NULL, &rtimer);
              SDL_DestroyTexture(timer_tex);
-             timer_tex = nullptr;
+             timer_tex = NULL;
         } else { current_timer_h_val = appCtx->line_h; }
         SDL_FreeSurface(timer_surf);
-        timer_surf = nullptr;
+        timer_surf = NULL;
     } else { current_timer_h_val = appCtx->line_h; }
     if (current_timer_h_val <= 0 && appCtx->line_h > 0) current_timer_h_val = appCtx->line_h;
     *out_timer_h = current_timer_h_val;
 }
 
-// Оновлена CalculateCursorLayout
 void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t final_text_len, size_t current_input_byte_idx,
                            int *out_cursor_abs_y, int *out_cursor_exact_x) {
     if (!appCtx || !text_to_type || !out_cursor_abs_y || !out_cursor_exact_x) return;
@@ -455,14 +452,19 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
 
         TextBlockInfo current_block = get_next_text_block_func(appCtx, &p_iter, p_end, pen_x_at_block_start);
 
-        if (log_file && ( (current_input_byte_idx >= 50 && current_input_byte_idx <= 65) || loop_iteration_count < 25 ) ) { // Розширене логування для діапазону
+        if (log_file && ( (current_input_byte_idx >= 50 && current_input_byte_idx <= 65) || loop_iteration_count < 25 ) ) {
            char block_preview[21];
            size_t preview_len = current_block.num_bytes < 20 ? current_block.num_bytes : 20;
-           strncpy(block_preview, current_block.start_ptr, preview_len);
-           block_preview[preview_len] = '\0';
-           for(int k=0; k < preview_len; ++k) if(iscntrl((unsigned char)block_preview[k]) && block_preview[k] != '\n' && block_preview[k] != '\t') block_preview[k] = '?';
+           if (current_block.start_ptr) { // Check if start_ptr is valid
+                strncpy(block_preview, current_block.start_ptr, preview_len);
+                block_preview[preview_len] = '\0';
+                for(int k=0; k < preview_len; ++k) if(iscntrl((unsigned char)block_preview[k]) && block_preview[k] != '\n' && block_preview[k] != '\t') block_preview[k] = '?';
+           } else {
+                strcpy(block_preview, "NULL_PTR");
+           }
 
-           size_t block_start_offset = current_block.start_ptr - text_to_type;
+
+           size_t block_start_offset = current_block.start_ptr ? (current_block.start_ptr - text_to_type) : 0;
 
            fprintf(log_file, "  [CalcLayout Loop %3d] input_idx: %3zu, block_offset: %4zu, processed_total: %4zu, block_len: %2zu, text: '%s', nl:%d, word:%d, y_start_block: %3d, pen_x_start_block: %3d, block_w: %3d\n",
                   loop_iteration_count, current_input_byte_idx, block_start_offset, bytes_at_block_start, current_block.num_bytes, block_preview,
@@ -486,12 +488,12 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
             current_line_abs_y = y_for_chars_in_this_block;
         }
 
-        if (log_file && line_y_at_block_start != current_line_abs_y && !current_block.is_newline ) {
+        if (log_file && line_y_at_block_start != current_line_abs_y && !current_block.is_newline && current_block.start_ptr ) {
              char block_preview_ch[11]; strncpy(block_preview_ch, current_block.start_ptr, 10); block_preview_ch[10] = '\0';
              for(int k=0; k<10 && block_preview_ch[k]!='\0'; ++k) if(iscntrl((unsigned char)block_preview_ch[k]) && block_preview_ch[k] != '\n' && block_preview_ch[k] != '\t') block_preview_ch[k] = '?';
              fprintf(log_file, "  [CalcLayout Iter %d] Word wrap: y_start_block %d, y_for_chars %d, new_current_line_abs_y %d. BY BLOCK: '%s'\n",
                     loop_iteration_count, line_y_at_block_start, y_for_chars_in_this_block, current_line_abs_y, block_preview_ch);
-        } else if (log_file && current_block.is_newline) {
+        } else if (log_file && current_block.is_newline && current_block.start_ptr) {
              char block_preview_ch[11]; strncpy(block_preview_ch, current_block.start_ptr, 10); block_preview_ch[10] = '\0';
              for(int k=0; k<10 && block_preview_ch[k]!='\0'; ++k) if(iscntrl((unsigned char)block_preview_ch[k]) && block_preview_ch[k] != '\n' && block_preview_ch[k] != '\t') block_preview_ch[k] = '?';
              fprintf(log_file, "  [CalcLayout Iter %d] Newline block: y_start_block %d, new_current_line_abs_y %d. BY BLOCK: '%s'\n",
@@ -499,7 +501,7 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
         }
 
 
-        if (!cursor_position_found && current_input_byte_idx >= bytes_at_block_start &&
+        if (!cursor_position_found && current_block.start_ptr && current_input_byte_idx >= bytes_at_block_start &&
             current_input_byte_idx < bytes_at_block_start + current_block.num_bytes) {
 
             calculated_cursor_y = y_for_chars_in_this_block;
@@ -510,15 +512,15 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
 
             while (p_char_iter_in_block < target_cursor_ptr_exact_in_block) {
                 const char* temp_char_start = p_char_iter_in_block;
-                Sint32 cp_in_block = decode_utf8(&p_char_iter_in_block, p_end);
+                Sint32 cp_in_block = decode_utf8(&p_char_iter_in_block, p_end); // p_end тут може бути не зовсім коректним, краще p_char_in_block_iter_end з RenderTextContent
 
                 if (cp_in_block <= 0) { break; }
-                if (p_char_iter_in_block > target_cursor_ptr_exact_in_block) { // Якщо decode_utf8 перескочив
-                     p_char_iter_in_block = temp_char_start; // Відкат, щоб не додавати ширину останнього символу
+                if (p_char_iter_in_block > target_cursor_ptr_exact_in_block) {
+                     p_char_iter_in_block = temp_char_start;
                     break;
                 }
 
-                int adv_char_in_block = get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp_in_block, appCtx->space_advance_width, nullptr, nullptr);
+                int adv_char_in_block = get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp_in_block, appCtx->space_advance_width, NULL, NULL);
 
                 if (calculated_cursor_x + adv_char_in_block > TEXT_AREA_X + TEXT_AREA_W && calculated_cursor_x != TEXT_AREA_X ) {
                     calculated_cursor_y += appCtx->line_h;
@@ -548,7 +550,6 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
     if (log_file) {
         fprintf(log_file, "[CalculateCursorLayout] OUTPUT for idx %zu: final_abs_y: %d (line ~%d), final_exact_x: %d\n",
                 current_input_byte_idx, *out_cursor_abs_y, (appCtx->line_h > 0 ? *out_cursor_abs_y / appCtx->line_h : -1) , *out_cursor_exact_x);
-        // fflush(log_file); // Перенесено в main loop
     }
 }
 
@@ -603,7 +604,7 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
         size_t current_block_start_byte_pos_render = (size_t)(p_render_iter - text_to_type);
         TextBlockInfo render_block = get_next_text_block_func(appCtx, &p_render_iter, p_text_end_for_render, render_pen_x);
         if (render_block.num_bytes == 0 && p_render_iter >= p_text_end_for_render) break;
-        if (render_block.num_bytes == 0) {
+        if (render_block.num_bytes == 0 || !render_block.start_ptr) { // Додано перевірку на start_ptr
             if(p_render_iter < p_text_end_for_render) p_render_iter++; else break;
             continue;
         }
@@ -692,8 +693,8 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
                             char_render_color = is_char_correct_val ? appCtx->palette[COL_CORRECT] : appCtx->palette[COL_INCORRECT];
                         } else { char_render_color = appCtx->palette[COL_TEXT]; }
 
-                        if (codepoint_to_render >= 32) {
-                            SDL_Texture* tex_to_render_final = nullptr; bool rendered_on_the_fly = false;
+                        if (codepoint_to_render >= 32) { // Не рендеримо контрольні символи, крім пробілу (який обробляється adv)
+                            SDL_Texture* tex_to_render_final = NULL; bool rendered_on_the_fly = false;
                             if (codepoint_to_render < 128 ) {
                                 int col_idx_for_cache_lookup;
                                 if (is_char_typed) { col_idx_for_cache_lookup = is_char_correct_val ? COL_CORRECT : COL_INCORRECT; }
@@ -709,14 +710,14 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
                                 if (surf_otf) {
                                     tex_to_render_final = SDL_CreateTextureFromSurface(appCtx->ren, surf_otf);
                                     if(tex_to_render_final) {glyph_w_render_val = surf_otf->w; glyph_h_render_val = surf_otf->h;}
-                                    SDL_FreeSurface(surf_otf); surf_otf = nullptr;
+                                    SDL_FreeSurface(surf_otf); surf_otf = NULL;
                                     rendered_on_the_fly = true;
                                 }
                             }
                             if (tex_to_render_final) {
                                 SDL_Rect dst_rect = {current_char_pen_x, current_char_pen_y + (appCtx->line_h - glyph_h_render_val) / 2, glyph_w_render_val, glyph_h_render_val};
-                                SDL_RenderCopy(appCtx->ren, tex_to_render_final, nullptr, &dst_rect);
-                                if (rendered_on_the_fly) { SDL_DestroyTexture(tex_to_render_final); tex_to_render_final = nullptr; }
+                                SDL_RenderCopy(appCtx->ren, tex_to_render_final, NULL, &dst_rect);
+                                if (rendered_on_the_fly) { SDL_DestroyTexture(tex_to_render_final); tex_to_render_final = NULL; }
                             }
                         }
                         current_char_pen_x += adv_render;
@@ -725,9 +726,12 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
                     end_char_loop_render_final_v7:;
                     render_pen_x = current_char_pen_x;
                     render_current_abs_line_num = current_char_abs_line_num;
-                } else {
+                } else { // Це таб
+                    // Можна додати візуалізацію табуляції, якщо потрібно (наприклад, декілька пробілів або спеціальний символ)
                     render_pen_x += render_block.pixel_width;
                 }
+            } else { // Блок невидимий (вище або нижче області перегляду)
+                 render_pen_x += render_block.pixel_width; // Все одно потрібно просунути pen_x для наступних розрахунків
             }
         }
 
@@ -739,6 +743,7 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
         }
     }
 
+    // Якщо курсор в кінці тексту
     if (current_input_byte_idx == final_text_len) {
         int final_viewport_line_idx = render_current_abs_line_num - first_visible_abs_line_num_val;
         if (final_viewport_line_idx >=0 && final_viewport_line_idx < DISPLAY_LINES) {
@@ -748,32 +753,38 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
     }
 }
 
-// --- New Function: RenderAppCursor ---
+
 void RenderAppCursor(AppContext *appCtx, bool show_cursor,
                      int final_cursor_x_on_screen, int final_cursor_y_baseline_on_screen,
                      int cursor_abs_y, int first_visible_abs_line_num, int text_viewport_top_y) {
     if (!appCtx || !appCtx->ren || !show_cursor) {
         return;
     }
-    if (final_cursor_x_on_screen < 0 || final_cursor_y_baseline_on_screen < 0) return;
+    if (final_cursor_x_on_screen < TEXT_AREA_X || final_cursor_y_baseline_on_screen < text_viewport_top_y) return; // Додано перевірку меж
 
     int cursor_logical_line_idx = -1;
     if (appCtx->line_h > 0) {
         cursor_logical_line_idx = cursor_abs_y / appCtx->line_h;
-    }
+    } else { return; } // Немає висоти лінії, не можемо малювати курсор
+
     int cursor_viewport_line_idx_draw = cursor_logical_line_idx - first_visible_abs_line_num;
 
-    if (appCtx->line_h > 0 && cursor_viewport_line_idx_draw >= 0 && cursor_viewport_line_idx_draw < DISPLAY_LINES) {
+    // Перевірка, чи курсор знаходиться в видимій області тексту
+    if (cursor_viewport_line_idx_draw >= 0 && cursor_viewport_line_idx_draw < DISPLAY_LINES) {
+        // Додаткова перевірка, чи координати y знаходяться в межах текстового поля
         if (final_cursor_y_baseline_on_screen >= text_viewport_top_y &&
             final_cursor_y_baseline_on_screen < text_viewport_top_y + (DISPLAY_LINES * appCtx->line_h) ) {
-            SDL_Rect cur_rect = { final_cursor_x_on_screen, final_cursor_y_baseline_on_screen, 2, appCtx->line_h };
-            SDL_SetRenderDrawColor(appCtx->ren, appCtx->palette[COL_CURSOR].r, appCtx->palette[COL_CURSOR].g, appCtx->palette[COL_CURSOR].b, appCtx->palette[COL_CURSOR].a);
-            SDL_RenderFillRect(appCtx->ren, &cur_rect);
+
+            // Перевірка, чи x координата не виходить за межі текстової області справа
+            if (final_cursor_x_on_screen <= TEXT_AREA_X + TEXT_AREA_W) {
+                 SDL_Rect cur_rect = { final_cursor_x_on_screen, final_cursor_y_baseline_on_screen, 2, appCtx->line_h };
+                 SDL_SetRenderDrawColor(appCtx->ren, appCtx->palette[COL_CURSOR].r, appCtx->palette[COL_CURSOR].g, appCtx->palette[COL_CURSOR].b, appCtx->palette[COL_CURSOR].a);
+                 SDL_RenderFillRect(appCtx->ren, &cur_rect);
+            }
         }
     }
 }
 
-// --- New Function: CalculateAndPrintAppStats ---
 void CalculateAndPrintAppStats(Uint32 start_time_ms, size_t current_input_byte_idx,
                                const char *text_to_type, size_t final_text_len,
                                const char *input_buffer) {
@@ -786,111 +797,164 @@ void CalculateAndPrintAppStats(Uint32 start_time_ms, size_t current_input_byte_i
     Uint32 end_time_ms = SDL_GetTicks();
     float time_taken_seconds = (float)(end_time_ms - start_time_ms) / 1000.0f;
 
-    if (time_taken_seconds <= 0.001f) {
+    if (time_taken_seconds <= 0.001f) { // Уникаємо ділення на нуль або дуже мале число
         if (log_file) fprintf(log_file, "Time taken is too short for meaningful stats.\n");
         else printf("Time taken is too short for meaningful stats.\n");
         return;
     }
     int correct_chars = 0;
+    // Порівнюємо тільки до фактично введеної довжини або довжини оригінального тексту, що менше
     size_t compare_len = (current_input_byte_idx < final_text_len) ? current_input_byte_idx : final_text_len;
-    for (size_t i = 0; i < compare_len; ++i) {
+
+    // Підрахунок правильних символів на основі байтового порівняння (може бути неточним для UTF-8)
+    // Для точного підрахунку UTF-8 символів потрібен складніший підхід, що декодує обидва рядки
+    // Тут залишено простий байтовий підрахунок для швидкості
+    const char* p_text = text_to_type;
+    const char* p_input = input_buffer;
+    const char* text_end_compare = text_to_type + compare_len;
+    const char* input_end_compare = input_buffer + current_input_byte_idx; // Порівнюємо до фактично введених символів
+
+    size_t i_text = 0;
+    size_t i_input = 0;
+
+    // Простий підрахунок: порівнюємо байт за байтом до найкоротшої з довжин
+    size_t iter_len = compare_len < current_input_byte_idx ? compare_len : current_input_byte_idx;
+    for (size_t i = 0; i < iter_len; ++i) {
         if (text_to_type[i] == input_buffer[i]) {
             correct_chars++;
         }
     }
-    float net_words = (float)correct_chars / 5.0f;
+
+
+    // WPM розраховується як (кількість правильних символів / 5) / час (хв)
+    float net_words = (float)correct_chars / 5.0f; // "слово" = 5 символів, стандарт для WPM
     float wpm = (net_words / time_taken_seconds) * 60.0f;
+
     float accuracy = 0.0f;
-    if (current_input_byte_idx > 0) {
+    if (current_input_byte_idx > 0) { // Уникаємо ділення на нуль
         accuracy = ((float)correct_chars / (float)current_input_byte_idx) * 100.0f;
     }
-    if (accuracy > 100.0f) accuracy = 100.0f;
+    if (accuracy > 100.0f) accuracy = 100.0f; // Обмеження точності
 
-    if (log_file) {
-        fprintf(log_file, "\n--- Typing Stats ---\n");
-        fprintf(log_file, "Time Taken: %.2f seconds\n", time_taken_seconds);
-        fprintf(log_file, "WPM (Net): %.2f\n", wpm);
-        fprintf(log_file, "Correct Characters: %d\n", correct_chars);
-        fprintf(log_file, "Typed Characters (bytes): %zu\n", current_input_byte_idx);
-        fprintf(log_file, "Accuracy: %.2f%%\n", accuracy);
-        fprintf(log_file, "--------------------\n");
-        fflush(log_file);
+    const char* log_or_print_header = log_file ? "[Stats] " : "";
+    FILE* out_stream = log_file ? log_file : stdout;
+
+    fprintf(out_stream, "\n%s--- Typing Stats ---\n", log_or_print_header);
+    fprintf(out_stream, "%sTime Taken: %.2f seconds\n", log_or_print_header, time_taken_seconds);
+    fprintf(out_stream, "%sWPM (Net): %.2f\n", log_or_print_header, wpm);
+    fprintf(out_stream, "%sCorrect Characters (approx. bytes): %d\n", log_or_print_header, correct_chars);
+    fprintf(out_stream, "%sTyped Characters (bytes): %zu\n", log_or_print_header, current_input_byte_idx);
+    fprintf(out_stream, "%sAccuracy (approx.): %.2f%%\n", log_or_print_header, accuracy);
+    fprintf(out_stream, "%s--------------------\n", log_or_print_header);
+
+    if(log_file) fflush(log_file);
+    if(!log_file) { // Якщо не логуємо у файл, друкуємо також в консоль (дублювання якщо лог і консоль одне й те саме)
+        printf("\n--- Typing Stats ---\n");
+        printf("Time Taken: %.2f seconds\n", time_taken_seconds);
+        printf("WPM (Net): %.2f\n", wpm);
+        printf("Correct Characters (approx. bytes): %d\n", correct_chars);
+        printf("Typed Characters (bytes): %zu\n", current_input_byte_idx);
+        printf("Accuracy (approx.): %.2f%%\n", accuracy);
+        printf("--------------------\n");
     }
-    printf("\n--- Typing Stats ---\n");
-    printf("Time Taken: %.2f seconds\n", time_taken_seconds);
-    printf("WPM (Net): %.2f\n", wpm);
-    printf("Correct Characters: %d\n", correct_chars);
-    printf("Typed Characters (bytes): %zu\n", current_input_byte_idx);
-    printf("Accuracy: %.2f%%\n", accuracy);
-    printf("--------------------\n");
 }
 
 // --- Головна функція ---
 int main(int argc, char **argv) {
     log_file = fopen("logs.txt", "w");
-    if (log_file == nullptr) {
+    if (log_file == NULL) { // Використовуємо NULL для C
         perror("Failed to open logs.txt for writing. Logging will be disabled for this session");
     } else {
         fprintf(log_file, "Application started. Logging to logs.txt.\n");
         fflush(log_file);
     }
 
-    AppContext appCtx = {nullptr}; // Ініціалізація нулями
-    char *raw_text_content_main = nullptr;
-    size_t raw_text_len_main = 0;
+    AppContext appCtx = {0}; // Ініціалізація нулями для структури
+    char *raw_text_content_main = NULL;
+    size_t raw_text_len_main = 0; // Буде визначено з розміру файлу
 
     const char *text_file_path_main = (argc > 1 ? argv[1] : TEXT_FILE_PATH);
     FILE *text_file_handle_main = fopen(text_file_path_main, "rb");
     if (!text_file_handle_main) {
         perror("Failed to open text file");
         fprintf(stderr, "Attempted to open: %s\n", text_file_path_main);
-        if (log_file) { fprintf(log_file, "ERROR: Failed to open text file: %s\n", text_file_path_main); if(log_file) fclose(log_file); }
+        if (log_file) {
+            fprintf(log_file, "ERROR: Failed to open text file: %s\n", text_file_path_main);
+            fclose(log_file); // Закриваємо лог-файл перед виходом
+            log_file = NULL;  // Встановлюємо в NULL, щоб уникнути подвійного закриття
+        }
         return 1;
     }
 
     fseek(text_file_handle_main, 0, SEEK_END);
     long raw_file_size_main_long = ftell(text_file_handle_main);
-    if (raw_file_size_main_long < 0 || raw_file_size_main_long >= MAX_TEXT_LEN -1) {
-        fprintf(stderr, "Error getting file size or file too large.\n");
-        if (log_file) { fprintf(log_file, "ERROR: Error getting file size or file too large.\n"); fclose(log_file); }
+    if (raw_file_size_main_long < 0 || (size_t)raw_file_size_main_long >= MAX_TEXT_LEN -1 ) {
+        fprintf(stderr, "Error getting file size or file too large (max %d).\n", MAX_TEXT_LEN -1);
+        if (log_file) {
+             fprintf(log_file, "ERROR: Error getting file size (size: %ld) or file too large.\n", raw_file_size_main_long);
+             fclose(log_file); log_file = NULL;
+        }
         fclose(text_file_handle_main); return 1;
     }
+    raw_text_len_main = (size_t)raw_file_size_main_long; // Встановлюємо довжину
     fseek(text_file_handle_main, 0, SEEK_SET);
 
-    raw_text_content_main = (char*)malloc(raw_text_len_main + 1);
+    raw_text_content_main = (char*)malloc(raw_text_len_main + 1); // +1 для нуль-термінатора
     if (!raw_text_content_main) {
         perror("Failed to allocate memory for raw_text_content_main");
-        if (log_file) { fprintf(log_file, "ERROR: Failed to allocate memory for raw_text_content_main.\n"); fclose(log_file); }
+        if (log_file) {
+            fprintf(log_file, "ERROR: Failed to allocate memory for raw_text_content_main.\n");
+            fclose(log_file); log_file = NULL;
+        }
         fclose(text_file_handle_main); return 1;
     }
 
     size_t bytes_actually_read = fread(raw_text_content_main, 1, raw_text_len_main, text_file_handle_main);
-    fclose(text_file_handle_main);
-    raw_text_content_main[bytes_actually_read] = '\0';
+    fclose(text_file_handle_main); // Закриваємо файл тексту одразу після читання
+    text_file_handle_main = NULL;
+
+    if (bytes_actually_read != raw_text_len_main) {
+        fprintf(stderr, "Warning: Mismatch in file size and bytes read. Read %zu, expected %zu.\n", bytes_actually_read, raw_text_len_main);
+        if (log_file) {
+            fprintf(log_file, "WARN: Mismatch in file size and bytes read. Read %zu, expected %zu.\n", bytes_actually_read, raw_text_len_main);
+        }
+        // Можна обрізати raw_text_len_main до bytes_actually_read, якщо потрібно
+        // raw_text_len_main = bytes_actually_read;
+    }
+    raw_text_content_main[bytes_actually_read] = '\0'; // Переконуємося, що є нуль-термінатор
 
     size_t final_text_len_val = 0;
     char *text_to_type = PreprocessText(raw_text_content_main, bytes_actually_read, &final_text_len_val);
-    free(raw_text_content_main);
-    raw_text_content_main = nullptr;
+    free(raw_text_content_main); // Звільняємо буфер сирого тексту
+    raw_text_content_main = NULL; // Добра практика
     if (!text_to_type) {
         perror("Failed to preprocess text");
-        if (log_file) { fprintf(log_file, "ERROR: Failed to preprocess text.\n"); fclose(log_file); }
+        if (log_file) {
+            fprintf(log_file, "ERROR: Failed to preprocess text.\n");
+            fclose(log_file); log_file = NULL;
+        }
         return 1;
     }
 
     if (!InitializeApp(&appCtx, "TypingApp Monkeytype-like")) {
-        free(text_to_type);
-        if (log_file) { fprintf(log_file, "ERROR: Failed to initialize app. appCtx.line_h = %d\n", appCtx.line_h); fclose(log_file); }
+        free(text_to_type); // Звільняємо оброблений текст
+        if (log_file) {
+            fprintf(log_file, "ERROR: Failed to initialize app. appCtx.line_h = %d\n", appCtx.line_h);
+            fclose(log_file); log_file = NULL;
+        }
         return 1;
     }
     if (log_file) fprintf(log_file, "InitializeApp successful. appCtx.line_h = %d\n", appCtx.line_h);
 
 
-    char *input_buffer = (char*)calloc(final_text_len_val + 100, 1);
-    if (!input_buffer && final_text_len_val > 0) {
+    char *input_buffer = (char*)calloc(final_text_len_val + 100, 1); // +100 для невеликого запасу
+    if (!input_buffer && final_text_len_val > 0) { // Перевірка final_text_len_val > 0, щоб не падати якщо текст порожній
         perror("Failed to allocate input_buffer");
         CleanupApp(&appCtx); free(text_to_type);
-        if (log_file) { fprintf(log_file, "ERROR: Failed to allocate input_buffer.\n"); fclose(log_file); }
+        if (log_file) {
+            fprintf(log_file, "ERROR: Failed to allocate input_buffer.\n");
+            fclose(log_file); log_file = NULL;
+        }
         return 1;
     }
     size_t current_input_byte_idx_main = 0;
@@ -916,13 +980,13 @@ int main(int argc, char **argv) {
 
         int timer_h_val = 0;
         RenderAppTimer(&appCtx, typing_started_main ? (SDL_GetTicks() - start_time_main) : 0, &timer_h_val);
-        int text_viewport_top_y_val = TEXT_AREA_PADDING_Y + timer_h_val + TEXT_AREA_PADDING_Y * 2;
+        int text_viewport_top_y_val = TEXT_AREA_PADDING_Y + timer_h_val + TEXT_AREA_PADDING_Y; // Зменшено один TEXT_AREA_PADDING_Y для компактності
 
         int logical_cursor_abs_y = 0;
         int logical_cursor_x = 0;
         CalculateCursorLayout(&appCtx, text_to_type, final_text_len_val, current_input_byte_idx_main, &logical_cursor_abs_y, &logical_cursor_x);
 
-        int current_first_visible_for_log = first_visible_abs_line_num_static;
+        int current_first_visible_for_log = first_visible_abs_line_num_static; // Зберегти поточне значення для логування
         UpdateVisibleLine(logical_cursor_abs_y, appCtx.line_h, &first_visible_abs_line_num_static);
 
         if (log_file && (current_input_byte_idx_main != prev_input_idx_for_log || first_visible_abs_line_num_static != prev_first_visible_for_log_main)) {
@@ -930,48 +994,67 @@ int main(int argc, char **argv) {
                 current_input_byte_idx_main,
                 logical_cursor_abs_y, (appCtx.line_h > 0 ? logical_cursor_abs_y / appCtx.line_h : -1), logical_cursor_x,
                 prev_first_visible_for_log_main,
-                current_first_visible_for_log,
+                current_first_visible_for_log, // Використовуємо збережене значення
                 first_visible_abs_line_num_static,
                 CURSOR_TARGET_VIEWPORT_LINE);
         }
         prev_input_idx_for_log = current_input_byte_idx_main;
         prev_first_visible_for_log_main = first_visible_abs_line_num_static;
 
-        int final_cursor_x_on_screen = logical_cursor_x;
-        int final_cursor_y_baseline_on_screen = text_viewport_top_y_val + (logical_cursor_abs_y - (first_visible_abs_line_num_static * appCtx.line_h));
+        int final_cursor_x_on_screen_calc = -1; // Буде встановлено RenderTextContent або CalculateCursorLayout
+        int final_cursor_y_baseline_on_screen_calc = -1;
 
         RenderTextContent(&appCtx, text_to_type, final_text_len_val, input_buffer, current_input_byte_idx_main,
                           first_visible_abs_line_num_static,
                           text_viewport_top_y_val,
-                          &final_cursor_x_on_screen, &final_cursor_y_baseline_on_screen);
+                          &final_cursor_x_on_screen_calc, &final_cursor_y_baseline_on_screen_calc);
 
-        RenderAppCursor(&appCtx, show_cursor_flag, final_cursor_x_on_screen, final_cursor_y_baseline_on_screen,
-                        logical_cursor_abs_y,
+        // Якщо RenderTextContent не встановив координати курсора (напр. курсор за межами видимості),
+        // можна спробувати розрахувати їх відносно логічних координат.
+        // Це може бути необхідно, якщо курсор знаходиться на рядку, який ще не відрендерено, але вже проскролено.
+        if (final_cursor_x_on_screen_calc < TEXT_AREA_X || final_cursor_y_baseline_on_screen_calc < text_viewport_top_y_val) {
+             if (appCtx.line_h > 0) {
+                int cursor_viewport_line = (logical_cursor_abs_y / appCtx.line_h) - first_visible_abs_line_num_static;
+                if (cursor_viewport_line >= 0 && cursor_viewport_line < DISPLAY_LINES) {
+                    final_cursor_x_on_screen_calc = logical_cursor_x;
+                    final_cursor_y_baseline_on_screen_calc = text_viewport_top_y_val + cursor_viewport_line * appCtx.line_h;
+                } else {
+                     // Курсор логічно поза видимими рядками, не намагаємось його малювати за цими розрахунками
+                     final_cursor_x_on_screen_calc = -100; // Інвалідуємо, щоб RenderAppCursor не намалював
+                     final_cursor_y_baseline_on_screen_calc = -100;
+                }
+            }
+        }
+
+
+        RenderAppCursor(&appCtx, show_cursor_flag, final_cursor_x_on_screen_calc, final_cursor_y_baseline_on_screen_calc,
+                        logical_cursor_abs_y, // Передаємо логічну Y позицію для перевірки видимості
                         first_visible_abs_line_num_static,
                         text_viewport_top_y_val);
 
         SDL_RenderPresent(appCtx.ren);
         if (log_file) fflush(log_file);
-        SDL_Delay(16);
+        SDL_Delay(16); // ~60 FPS
     }
 
     SDL_StopTextInput();
     if (typing_started_main) {
         CalculateAndPrintAppStats(start_time_main, current_input_byte_idx_main, text_to_type, final_text_len_val, input_buffer);
     } else {
-        if (log_file) fprintf(log_file, "No typing started. No stats to display.\n");
-        else printf("No typing started. No stats to display.\n");
+        const char* no_typing_msg = "No typing started. No stats to display.\n";
+        if (log_file) fprintf(log_file, "%s", no_typing_msg);
+        else printf("%s", no_typing_msg);
     }
 
     CleanupApp(&appCtx);
-    if (text_to_type) free(text_to_type);
-    if (input_buffer) free(input_buffer);
+    if (text_to_type) free(text_to_type); text_to_type = NULL;
+    if (input_buffer) free(input_buffer); input_buffer = NULL;
 
     if (log_file) {
         fprintf(log_file, "Application finished gracefully.\n");
         fflush(log_file);
         fclose(log_file);
-        log_file = nullptr;
+        log_file = NULL;
     }
     return 0;
 }
