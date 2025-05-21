@@ -799,28 +799,77 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
     while(p_iter < p_end && !cursor_position_found) {
         //loop_iteration_count++; // Removed
         size_t bytes_at_block_start = processed_bytes_total;
-        int pen_x_at_block_start = current_pen_x;
+        int pen_x_at_block_start = current_pen_x; // Поточна позиція X перед обробкою блоку
         int line_y_at_block_start = current_line_abs_y;
 
+        // Зберігаємо покажчик p_iter перед тим, як get_next_text_block_func його змінить,
+        // щоб мати можливість "заглянути" наперед для наступного блоку.
+        const char *p_iter_before_current_block = p_iter;
         TextBlockInfo current_block = get_next_text_block_func(appCtx, &p_iter, p_end, pen_x_at_block_start);
-        
-        // Detailed block logging removed as per user request.
+        // Тепер p_iter вказує на початок блоку *після* current_block
 
-        if (current_block.num_bytes == 0) { if(p_iter < p_end) p_iter++; else break; continue; }
+        if (current_block.num_bytes == 0) { /* ... обробка порожнього блоку ... */ }
 
-        int y_for_chars_in_this_block = line_y_at_block_start;
+        // Визначаємо, чи потрібно переносити current_block
+        // Ця логіка має бути ідентичною до тієї, що в RenderTextContent
+        bool wrap_this_block = false;
+        if (pen_x_at_block_start != TEXT_AREA_X) { // Перевіряємо, тільки якщо не на початку рядка
+            if (current_block.is_word) {
+                // Умова 1: Саме слово не вміщується
+                if (pen_x_at_block_start + current_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W) {
+                    wrap_this_block = true;
+                } else {
+                    // Умова 2: Слово вміщується, але наступний за ним пробіл - ні.
+                    // p_iter вже вказує на початок наступного блоку.
+                    const char *p_peek_iter_calc = p_iter;
+                    if (p_peek_iter_calc < p_end) {
+                        const char *temp_peek_ptr_calc = p_peek_iter_calc;
+                        // Розрахункова позиція X для наступного блоку
+                        int pen_x_for_next_block_peek_calc = pen_x_at_block_start + current_block.pixel_width;
+                        TextBlockInfo next_block_calc = get_next_text_block_func(appCtx, &temp_peek_ptr_calc, p_end, pen_x_for_next_block_peek_calc);
+
+                        if (next_block_calc.num_bytes > 0 && !next_block_calc.is_word && !next_block_calc.is_newline && !next_block_calc.is_tab) { // Наступний блок - пробіл
+                            Sint32 cp_space_peek_calc = 0;
+                            int first_space_char_width_calc = 0;
+                            const char* temp_s_ptr_peek_calc = next_block_calc.start_ptr;
+                            const char* temp_s_ptr_peek_end_calc = next_block_calc.start_ptr + next_block_calc.num_bytes;
+
+                            if (temp_s_ptr_peek_calc < temp_s_ptr_peek_end_calc) {
+                               cp_space_peek_calc = decode_utf8(&temp_s_ptr_peek_calc, temp_s_ptr_peek_end_calc);
+                            }
+
+                            if (cp_space_peek_calc == ' ') { // Переконуємося, що це дійсно пробіл
+                                first_space_char_width_calc = get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp_space_peek_calc, appCtx->space_advance_width, NULL, NULL);
+                                if (first_space_char_width_calc > 0 && (pen_x_for_next_block_peek_calc + first_space_char_width_calc > TEXT_AREA_X + TEXT_AREA_W)) {
+                                    wrap_this_block = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Поточні координати X та Y для символів УСЕРЕДИНІ поточного блоку
+        // (можуть змінитися, якщо блок переноситься)
         int x_for_chars_in_this_block = pen_x_at_block_start;
+        int y_for_chars_in_this_block = line_y_at_block_start;
+
 
         if (current_block.is_newline) {
             current_line_abs_y = line_y_at_block_start + appCtx->line_h;
             current_pen_x = TEXT_AREA_X;
+            // y_for_chars_in_this_block оновлювати не потрібно, бо новий рядок не має символів "на старому" y
         } else {
-            if (pen_x_at_block_start + current_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W && pen_x_at_block_start != TEXT_AREA_X && current_block.is_word) {
+            // Якщо визначили, що блок треба перенести
+            if (wrap_this_block) {
                 y_for_chars_in_this_block = line_y_at_block_start + appCtx->line_h;
                 x_for_chars_in_this_block = TEXT_AREA_X;
             }
-            current_pen_x = x_for_chars_in_this_block + current_block.pixel_width;
-            current_line_abs_y = y_for_chars_in_this_block;
+            // Оновлюємо поточну позицію пера (current_pen_x) та абсолютну лінію (current_line_abs_y)
+            // на основі того, де закінчиться цей блок
+            current_pen_x = x_for_chars_in_this_block + current_block.pixel_width; // Позиція ПІСЛЯ блоку, якщо він не переноситься всередині себе
+            current_line_abs_y = y_for_chars_in_this_block; // Абсолютна лінія, на якій блок починається (або продовжується)
         }
         
         // Detailed wrap/newline logging removed.
@@ -1226,7 +1275,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (!InitializeApp(&appCtx, "TypingApp Monkeytype-like")) {
+    if (!InitializeApp(&appCtx, "TypingApp")) {
         free(text_to_type);
         if (log_file) {
             fprintf(log_file, "ERROR: Failed to initialize app. appCtx.line_h = %d\n", appCtx.line_h);
