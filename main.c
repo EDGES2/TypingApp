@@ -947,22 +947,66 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
         if (render_block.is_newline) {
             render_current_abs_line_num++;
             render_pen_x = TEXT_AREA_X;
-        } else {
+            // ... (решта коду для нового рядка) ...
+        } else { // Блок є словом, пробілом або табуляцією
             int x_at_block_render_start = render_pen_x;
-            int y_at_block_render_start = current_line_on_screen_y;
+            int y_at_block_render_start = current_line_on_screen_y; // current_line_on_screen_y розраховується раніше
 
-            if (render_pen_x + render_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W &&
-                render_pen_x != TEXT_AREA_X && render_block.is_word) {
+            bool must_wrap_block = false; // Прапорець, що вказує на необхідність перенесення поточного блоку
+
+            if (render_pen_x != TEXT_AREA_X) { // Перевіряємо перенесення, тільки якщо ми не на початку рядка
+                if (render_block.is_word) {
+                    // Умова 1: Саме слово не вміщується на поточний рядок
+                    if (render_pen_x + render_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W) {
+                        must_wrap_block = true;
+                    } else {
+                        // Умова 2: Слово вміщується, але якщо за ним слідує пробіл, то пробіл не вміститься.
+                        // Потрібно "заглянути" наперед до наступного блоку.
+                        const char *p_peek_iter = p_render_iter; // p_render_iter вже вказує на початок наступного блоку
+                        if (p_peek_iter < p_text_end_for_render) {
+                            const char *temp_peek_ptr_for_get_next = p_peek_iter;
+                            // Розрахункова позиція X для наступного блоку (якщо поточне слово не переноситься)
+                            int pen_x_for_next_block_peek = render_pen_x + render_block.pixel_width;
+                            TextBlockInfo next_block = get_next_text_block_func(appCtx, &temp_peek_ptr_for_get_next, p_text_end_for_render, pen_x_for_next_block_peek);
+
+                            // Перевіряємо, чи є наступний блок пробілом і чи не вміститься він
+                            if (next_block.num_bytes > 0 && !next_block.is_word && !next_block.is_newline && !next_block.is_tab) { // Наступний блок - це блок пробілів
+                                int first_space_char_width = 0;
+                                const char* temp_s_ptr_peek = next_block.start_ptr;
+                                const char* temp_s_ptr_peek_end = next_block.start_ptr + next_block.num_bytes;
+                                Sint32 cp_space_peek = 0;
+
+                                if (temp_s_ptr_peek < temp_s_ptr_peek_end) {
+                                   cp_space_peek = decode_utf8(&temp_s_ptr_peek, temp_s_ptr_peek_end);
+                                }
+
+                                if (cp_space_peek == ' ') { // Переконуємося, що це дійсно пробіл
+                                    first_space_char_width = get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp_space_peek, appCtx->space_advance_width, NULL, NULL);
+                                    if (first_space_char_width > 0 && (pen_x_for_next_block_peek + first_space_char_width > TEXT_AREA_X + TEXT_AREA_W)) {
+                                        must_wrap_block = true; // Поточне слово потрібно перенести, щоб уникнути "висячого" пробілу
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Якщо render_block - це блок пробілів, то must_wrap_block залишиться false.
+                // Логіка перенесення для блоків пробілів (якщо вони дуже довгі) обробляється внутрішнім циклом посимвольного рендерингу.
+                // Наша мета тут - правильно перенести слово *перед* проблемним пробілом.
+            }
+
+            if (must_wrap_block) { // Якщо для поточного блоку (слова) визначено, що його треба перенести
                 render_current_abs_line_num++;
                 current_viewport_line_idx = render_current_abs_line_num - first_visible_abs_line_num_val;
-                if (current_viewport_line_idx >= DISPLAY_LINES) break;
+                if (current_viewport_line_idx >= DISPLAY_LINES) break; // Зупиняємось, якщо новий рядок поза екраном
                 current_line_on_screen_y = text_viewport_top_y + current_viewport_line_idx * appCtx->line_h;
                 render_pen_x = TEXT_AREA_X;
 
-                x_at_block_render_start = render_pen_x;
-                y_at_block_render_start = current_line_on_screen_y;
+                x_at_block_render_start = render_pen_x; // Оновлюємо для циклу посимвольного рендерингу
+                y_at_block_render_start = current_line_on_screen_y; // Оновлюємо для циклу посимвольного рендерингу
 
-                 if (current_block_start_byte_pos_render == current_input_byte_idx && current_viewport_line_idx >=0 && current_viewport_line_idx < DISPLAY_LINES) {
+                // Оновлення позиції курсора, якщо індекс введення знаходиться на початку цього перенесеного блоку
+                if (current_block_start_byte_pos_render == current_input_byte_idx && current_viewport_line_idx >=0 && current_viewport_line_idx < DISPLAY_LINES) {
                     *out_final_cursor_draw_x = render_pen_x;
                     *out_final_cursor_draw_y_baseline = current_line_on_screen_y;
                 }
