@@ -664,7 +664,7 @@ void RenderLiveStats(AppContext *appCtx, Uint32 current_ticks, Uint32 start_time
     snprintf(acc_buf, sizeof(acc_buf), "Acc: %.0f%%", live_accuracy);
     snprintf(words_buf, sizeof(words_buf), "Words: %d", live_typed_words_count);
 
-    SDL_Color stat_color = appCtx->palette[COL_CURSOR];
+    SDL_Color stat_color = appCtx->palette[COL_TEXT]; //колір статистики
 
     int current_x_render_pos = timer_x_pos + timer_width + 20;
     int stats_y_render_pos = timer_y_pos + (timer_height - appCtx->line_h) / 2;
