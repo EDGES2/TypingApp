@@ -7,26 +7,31 @@
 #include <stdbool.h>
 #include <ctype.h> // For iscntrl, isspace
 #include <SDL2/SDL_filesystem.h> // For SDL_GetBasePath()
+#include <sys/errno.h>
 
 // --- Application Constants ---
 #define WINDOW_W     800
 #define WINDOW_H     200
-#define FONT_SIZE    14 // As per user's last provided main.c
-#define MAX_TEXT_LEN 50000
-#ifndef TEXT_FILE_PATH
-#define TEXT_FILE_PATH "text.txt"
+#define FONT_SIZE    14
+#define MAX_TEXT_LEN (5 * 1024 * 1024)
+#ifndef TEXT_FILE_PATH_BASENAME // Use a basename for flexibility
+#define TEXT_FILE_PATH_BASENAME "text.txt"
 #endif
+#ifndef PROJECT_NAME_STR // Define if not set by CMake (for fallback path)
+#define PROJECT_NAME_STR "TypingApp"
+#endif
+
 
 #define TEXT_AREA_X 10
 #define TEXT_AREA_PADDING_Y 10
 #define TEXT_AREA_W (WINDOW_W - (2 * TEXT_AREA_X))
 #define DISPLAY_LINES 3
-#define CURSOR_TARGET_VIEWPORT_LINE 0 // As per user's last provided main.c
+#define CURSOR_TARGET_VIEWPORT_LINE 1
 #define TAB_SIZE_IN_SPACES 4
 
 // Logging switch: 1 to enable regular game event logs, 0 to disable them.
 // Critical errors to stderr and app start/finish to log_file (if open) are always active.
-#define ENABLE_GAME_LOGS 0
+#define ENABLE_GAME_LOGS 0 // User requested to disable detailed logs by default
 
 // Color palette indices
 enum { COL_BG, COL_TEXT, COL_CORRECT, COL_INCORRECT, COL_CURSOR, N_COLORS };
@@ -59,12 +64,12 @@ typedef struct {
 static int first_visible_abs_line_num_static = 0;
 static bool typing_started_main = false;
 static FILE *log_file = NULL;
-static bool predictive_scroll_triggered_for_this_input_idx = false;
-static int y_offset_due_to_prediction_for_current_idx = 0;
-
-// For accuracy calculation based on all keystrokes
+// For accuracy calculation (these were in the user's provided code that had the redefinition error)
 static unsigned long long total_keystrokes_for_accuracy = 0;
 static unsigned long long total_errors_committed_for_accuracy = 0;
+// Predictive scroll variables (also from user's provided code)
+static bool predictive_scroll_triggered_for_this_input_idx = false;
+static int y_offset_due_to_prediction_for_current_idx = 0;
 
 
 // --- Helper Function Definitions (All functions except main are defined before main) ---
@@ -91,7 +96,6 @@ Sint32 decode_utf8(const char **s_ptr, const char *s_end_const_char) {
     return codepoint;
 }
 
-// CountUTF8Chars is not present in the user's last provided main.c, adding it as it's useful.
 size_t CountUTF8Chars(const char* text, size_t text_byte_len) {
     size_t char_count = 0;
     const char* p = text;
@@ -102,15 +106,15 @@ size_t CountUTF8Chars(const char* text, size_t text_byte_len) {
         if (p > char_start) {
              if (cp > 0) {
                 char_count++;
-            } else if (cp == 0 && p < end) { // Treat null char in middle as a char
+            } else if (cp == 0 && p < end) {
                  char_count++;
-            } else if (cp == -1) { // Invalid sequence, count as one char to advance
+            } else if (cp == -1) {
                  char_count++;
-            } else if (cp == 0 && p == end) { // Null char at the very end
+            } else if (cp == 0 && p == end) {
                 break;
             }
-        } else { // Should not happen if decode_utf8 works correctly and s_ptr advances
-            if (p < end) p++; else break; // Ensure progress
+        } else {
+            if (p < end) p++; else break;
         }
     }
     return char_count;
@@ -240,10 +244,21 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
             appCtx->font = TTF_OpenFont(font_paths[i], FONT_SIZE);
         #endif
         if (appCtx->font) {
-            #if ENABLE_GAME_LOGS
-            if (log_file) fprintf(log_file, "Loaded font: %s (line_h from TTF_FontLineSkip: %d, from TTF_FontHeight: %d)\n",
+#if ENABLE_GAME_LOGS
+            if (log_file) {
+                fprintf(stderr, "DEBUG: Attempting to log 'Loaded font'. Current ferror: %d\n", ferror(log_file));
+                int ret = fprintf(log_file, "Loaded font: %s (line_h from TTF_FontLineSkip: %d, from TTF_FontHeight: %d)\n",
                                    font_paths[i], TTF_FontLineSkip(appCtx->font), TTF_FontHeight(appCtx->font));
-            #endif
+                if (ret < 0) {
+                    fprintf(stderr, "DEBUG: Error writing 'Loaded font' log to log_file. fprintf returned %d. errno: %s. ferror: %d\n", ret, strerror(errno), ferror(log_file));
+                }
+                int flush_ret = fflush(log_file);
+                if (flush_ret == EOF) {
+                    fprintf(stderr, "DEBUG: Error flushing 'Loaded font' log. fflush returned EOF. errno: %s. ferror: %d\n", strerror(errno), ferror(log_file));
+                }
+                fprintf(stderr, "DEBUG: After 'Loaded font' log attempt. ferror: %d\n", ferror(log_file));
+            }
+#endif
             break;
         }
     }
@@ -286,7 +301,13 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
     appCtx->tab_width_pixels = (appCtx->space_advance_width > 0) ? (TAB_SIZE_IN_SPACES * appCtx->space_advance_width) : (TAB_SIZE_IN_SPACES * (FONT_SIZE / 3));
 
     #if ENABLE_GAME_LOGS
-    if (log_file) fflush(log_file);
+    if (log_file) {
+        fprintf(log_file, "SECOND TEST LOG LINE.\n");
+        if (fflush(log_file) == EOF) {
+            fprintf(stderr, "Error flushing SECOND TEST LOG LINE.\n");
+        }
+        fprintf(stderr, "Attempted SECOND TEST LOG. ferror: %d\n", ferror(log_file));
+    }
     #endif
     return true;
 }
@@ -320,7 +341,7 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
         return empty_str;
     }
 
-    size_t temp_buffer_capacity = raw_text_len * 2 + 10; // Increased capacity for safety
+    size_t temp_buffer_capacity = raw_text_len * 2 + 10;
     char *temp_buffer = (char*)malloc(temp_buffer_capacity);
     if (!temp_buffer) {
         perror("Failed to allocate temporary buffer in PreprocessText");
@@ -332,10 +353,9 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
     const char* p_read = raw_text_buffer;
     const char* p_read_end = raw_text_buffer + raw_text_len;
 
-    // Pass 1: Character replacements (smart quotes, '…' to "...", '--' to '—', keep '—') and normalize newlines
+    // Pass 1: Character replacements and initial newline/CR handling
     while (p_read < p_read_end) {
-        // Ensure enough space in temp_buffer
-        if (temp_w_idx + 4 >= temp_buffer_capacity) { // Max 3 bytes for UTF-8 + 1 for null or extra
+        if (temp_w_idx + 4 >= temp_buffer_capacity) {
             temp_buffer_capacity = temp_buffer_capacity * 2 + 4;
             char* new_temp_buffer = (char*)realloc(temp_buffer, temp_buffer_capacity);
             if (!new_temp_buffer) {
@@ -347,7 +367,7 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
             temp_buffer = new_temp_buffer;
         }
 
-        if (*p_read == '\r') { // Normalize CR and CRLF to LF
+        if (*p_read == '\r') {
             p_read++;
             if (p_read < p_read_end && *p_read == '\n') {
                 p_read++;
@@ -356,10 +376,10 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
             continue;
         }
 
-        if (*p_read == '-' && (p_read + 1 < p_read_end) && *(p_read + 1) == '-') { // "--" to EM DASH —
+        if (*p_read == '-' && (p_read + 1 < p_read_end) && *(p_read + 1) == '-') {
             temp_buffer[temp_w_idx++] = (char)0xE2;
             temp_buffer[temp_w_idx++] = (char)0x80;
-            temp_buffer[temp_w_idx++] = (char)0x94;
+            temp_buffer[temp_w_idx++] = (char)0x94; // EM DASH —
             p_read += 2;
             continue;
         }
@@ -369,19 +389,23 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
         size_t char_len_original = (size_t)(p_read - char_start_original);
 
         if (cp <= 0) {
-            if (char_len_original == 0 && p_read < p_read_end) p_read++; // Ensure progress on invalid/null char
+            if (char_len_original == 0 && p_read < p_read_end) p_read++;
             continue;
         }
 
         if (cp == 0x2026) { // HORIZONTAL ELLIPSIS … -> ...
-            temp_buffer[temp_w_idx++] = '.';
-            temp_buffer[temp_w_idx++] = '.';
-            temp_buffer[temp_w_idx++] = '.';
-        } else if (cp == 0x2018 || cp == 0x2019 || cp == 0x201C || cp == 0x201D) { // Smart quotes to '
-            temp_buffer[temp_w_idx++] = '\'';
-        } else { // Copy other characters (including existing EM DASH and \n)
-            memcpy(temp_buffer + temp_w_idx, char_start_original, char_len_original);
-            temp_w_idx += char_len_original;
+             if (temp_w_idx + 3 <= temp_buffer_capacity) {
+                temp_buffer[temp_w_idx++] = '.';
+                temp_buffer[temp_w_idx++] = '.';
+                temp_buffer[temp_w_idx++] = '.';
+             } else break;
+        } else if (cp == 0x2018 || cp == 0x2019 || cp == 0x201C || cp == 0x201D) { // Smart quotes
+            if (temp_w_idx + 1 <= temp_buffer_capacity) temp_buffer[temp_w_idx++] = '\''; else break;
+        } else { // Other characters (including \n and existing em-dashes)
+            if (temp_w_idx + char_len_original <= temp_buffer_capacity) {
+                memcpy(temp_buffer + temp_w_idx, char_start_original, char_len_original);
+                temp_w_idx += char_len_original;
+            } else break;
         }
     }
     temp_buffer[temp_w_idx] = '\0';
@@ -398,16 +422,15 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
     size_t final_pt_idx = 0;
     const char* p2_read = temp_buffer;
     const char* p2_read_end = temp_buffer + temp_w_idx;
-    int newline_run = 0;
-    bool last_char_output_was_space = true; // True to trim leading spaces/newlines
-                                                 // And to collapse multiple spaces/newlines
-    bool content_started = false;
+    int consecutive_newlines = 0;
+    bool last_char_output_was_space = true;
+    bool content_has_started = false;
 
-    // Skip all leading whitespace (spaces and newlines) from temp_buffer
+    // Skip leading whitespace from temp_buffer
     while(p2_read < p2_read_end) {
         const char* peek_ptr = p2_read;
         Sint32 cp_peek = decode_utf8(&peek_ptr, p2_read_end);
-        if (cp_peek == ' ' || cp_peek == '\n' ) {
+        if (cp_peek == ' ' || cp_peek == '\n') {
             p2_read = peek_ptr;
         } else {
             break;
@@ -425,53 +448,65 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
         }
 
         if (cp2 == '\n') {
-            newline_run++;
+            consecutive_newlines++;
         } else { // Non-newline character
-            if (newline_run > 0) {
-                if (content_started) { // Only add newline/space if content has started
-                    if (final_pt_idx > 0 && processed_text[final_pt_idx - 1] == ' ') { // Remove space before \n
-                        final_pt_idx--;
+            if (consecutive_newlines > 0) {
+                if (content_has_started || final_pt_idx > 0) {  // Only add separator if not truly the beginning of output
+                    if (final_pt_idx > 0 && processed_text[final_pt_idx - 1] == ' ') {
+                         final_pt_idx--;
                     }
-                    if (newline_run >= 2) { // Paragraph break
-                        if (final_pt_idx == 0 || processed_text[final_pt_idx - 1] != '\n') {
-                            processed_text[final_pt_idx++] = '\n';
+                    if (consecutive_newlines >= 2) { // Paragraph break
+                        if (final_pt_idx == 0 || (final_pt_idx > 0 && processed_text[final_pt_idx - 1] != '\n')) {
+                             if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = '\n'; else break;
                         }
                     } else { // Single newline becomes a space
                         if (final_pt_idx > 0 && processed_text[final_pt_idx - 1] != ' ' && processed_text[final_pt_idx - 1] != '\n') {
-                            processed_text[final_pt_idx++] = ' ';
+                             if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = ' '; else break;
+                        } else if (final_pt_idx == 0 && content_has_started ) { // If first content was preceded by single \n
+                             if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = ' '; else break;
                         }
                     }
                 }
-                last_char_output_was_space = true; // After newline processing, it's like a space was output
+                last_char_output_was_space = true;
             }
-            newline_run = 0;
+            consecutive_newlines = 0;
 
             if (cp2 == ' ') {
-                if (content_started && !last_char_output_was_space) {
-                    processed_text[final_pt_idx++] = ' ';
+                if (content_has_started && !last_char_output_was_space) {
+                    if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = ' '; else break;
                 }
                 last_char_output_was_space = true;
-            } else { // Actual content character
-                memcpy(processed_text + final_pt_idx, char_start_pass2_original, char_len_pass2);
-                final_pt_idx += char_len_pass2;
+            } else {
+                // If the last action was writing a newline (from consecutive_newlines >=2),
+                // and now we have content, last_char_output_was_space should be true to prevent double space if content starts with space.
+                // But if last was newline, and current is content, we don't want a leading space.
+                if (last_char_output_was_space && final_pt_idx > 0 && processed_text[final_pt_idx-1] == '\n' ) {
+                    // Correct: if previous output was newline, this new char is start of new line, no leading space needed.
+                } else if (last_char_output_was_space && final_pt_idx > 0 && content_has_started) {
+                     // This case might be redundant with the content_has_started && !last_char_output_was_space for spaces.
+                }
+
+
+                if (final_pt_idx + char_len_pass2 <= temp_w_idx) {
+                    memcpy(processed_text + final_pt_idx, char_start_pass2_original, char_len_pass2);
+                    final_pt_idx += char_len_pass2;
+                } else break;
                 last_char_output_was_space = false;
-                content_started = true;
+                content_has_started = true;
             }
         }
     }
 
-    // After loop, if the very last thing in temp_buffer was a sequence of newlines (and content had started)
-    if (newline_run > 0 && last_char_output_was_space) {
+    if (consecutive_newlines > 0 && content_has_started) {
         if (final_pt_idx > 0 && processed_text[final_pt_idx - 1] == ' ') final_pt_idx--;
-        if (newline_run >= 2) {
+        if (consecutive_newlines >= 2) {
             if (final_pt_idx == 0 || (final_pt_idx > 0 && processed_text[final_pt_idx - 1] != '\n')) {
-                 processed_text[final_pt_idx++] = '\n';
+                 if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = '\n';
             }
         }
-        // A single trailing newline is effectively ignored by the final trim
+        // A single trailing newline from input is effectively ignored/trimmed by the next step.
     }
 
-    // Final trim of any trailing spaces or newlines
     while (final_pt_idx > 0 && (processed_text[final_pt_idx-1] == ' ' || processed_text[final_pt_idx-1] == '\n')) {
         final_pt_idx--;
     }
@@ -764,7 +799,7 @@ void CalculateAndPrintAppStats(Uint32 start_time_ms, size_t current_input_byte_i
     printf("\n--- Typing Stats (Final) ---\n");
     printf("Time Taken: %.2f seconds\n", time_taken_seconds);
     printf("WPM (Net): %.2f\n", wpm);
-    printf("Correct Keystrokes: %llu\n", final_correct_keystrokes);
+    printf("Correct Keystrokes: %zu\n", final_correct_keystrokes); // Changed %llu to %zu
     printf("Total Keystrokes: %llu\n", total_keystrokes_for_accuracy);
     printf("Committed Errors: %llu\n", total_errors_committed_for_accuracy);
     printf("Accuracy (based on all keystrokes): %.2f%%\n", accuracy);
@@ -794,7 +829,7 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
         return;
     }
 
-    //int loop_iteration_count = 0; // Not needed as ENABLE_DETAILED_LOGGING is removed
+    //int loop_iteration_count = 0; // No longer needed with ENABLE_DETAILED_LOGGING removed
 
     while(p_iter < p_end && !cursor_position_found) {
         //loop_iteration_count++; // Removed
@@ -815,7 +850,9 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
             current_line_abs_y = line_y_at_block_start + appCtx->line_h;
             current_pen_x = TEXT_AREA_X;
         } else {
-            if (pen_x_at_block_start + current_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W && pen_x_at_block_start != TEXT_AREA_X && current_block.is_word) {
+            if (pen_x_at_block_start + current_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W &&
+                pen_x_at_block_start != TEXT_AREA_X &&
+                (current_block.is_word || current_block.is_tab) ) {
                 y_for_chars_in_this_block = line_y_at_block_start + appCtx->line_h;
                 x_for_chars_in_this_block = TEXT_AREA_X;
             }
@@ -825,26 +862,39 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
 
         // Detailed wrap/newline logging removed.
 
-        if (!cursor_position_found && current_block.start_ptr && current_input_byte_idx >= bytes_at_block_start &&
+        if (!cursor_position_found && current_block.start_ptr &&
+            current_input_byte_idx >= bytes_at_block_start &&
             current_input_byte_idx < bytes_at_block_start + current_block.num_bytes) {
 
             calculated_cursor_y = y_for_chars_in_this_block;
             calculated_cursor_x = x_for_chars_in_this_block;
 
             const char* p_char_iter_in_block = current_block.start_ptr;
-            const char* target_cursor_ptr_exact_in_block = current_block.start_ptr + (current_input_byte_idx - bytes_at_block_start);
+            const char* target_cursor_ptr_global = text_to_type + current_input_byte_idx;
 
-            while (p_char_iter_in_block < target_cursor_ptr_exact_in_block) {
+
+            while (p_char_iter_in_block < target_cursor_ptr_global) {
                 const char* temp_char_start = p_char_iter_in_block;
                 Sint32 cp_in_block = decode_utf8(&p_char_iter_in_block, p_end);
 
-                if (cp_in_block <= 0) { break; }
-                if (p_char_iter_in_block > target_cursor_ptr_exact_in_block) {
+                if (cp_in_block <= 0) {
+                    if (p_char_iter_in_block <= temp_char_start) p_char_iter_in_block = temp_char_start +1;
+                    break;
+                }
+                if (p_char_iter_in_block > target_cursor_ptr_global && target_cursor_ptr_global > temp_char_start) {
                      p_char_iter_in_block = temp_char_start;
                     break;
                 }
 
-                int adv_char_in_block = get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp_in_block, appCtx->space_advance_width, NULL, NULL);
+                int adv_char_in_block = 0;
+                if (cp_in_block == '\t') {
+                    int offset_in_line = calculated_cursor_x - TEXT_AREA_X;
+                    adv_char_in_block = appCtx->tab_width_pixels - (offset_in_line % appCtx->tab_width_pixels);
+                    if (adv_char_in_block == 0 && offset_in_line >=0) adv_char_in_block = appCtx->tab_width_pixels;
+                    if (adv_char_in_block <=0) adv_char_in_block = appCtx->tab_width_pixels;
+                } else {
+                    adv_char_in_block = get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp_in_block, appCtx->space_advance_width, NULL, NULL);
+                }
 
                 if (calculated_cursor_x + adv_char_in_block > TEXT_AREA_X + TEXT_AREA_W && calculated_cursor_x != TEXT_AREA_X ) {
                     calculated_cursor_y += appCtx->line_h;
@@ -856,6 +906,7 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
         }
 
         processed_bytes_total += current_block.num_bytes;
+
         if (!cursor_position_found && processed_bytes_total == current_input_byte_idx) {
             calculated_cursor_x = current_pen_x;
             calculated_cursor_y = current_line_abs_y;
@@ -872,7 +923,8 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
     *out_cursor_exact_x = calculated_cursor_x;
 
     #if ENABLE_GAME_LOGS
-    if (log_file && (current_input_byte_idx > 90 || current_input_byte_idx == 0)) {
+    if (log_file && (current_input_byte_idx > 0)) { // Log for relevant indices
+        // int loop_iteration_count is removed, so not logged
         fprintf(log_file, "[CalculateCursorLayout] OUTPUT for idx %zu: final_abs_y: %d (line ~%d), final_exact_x: %d\n",
                 current_input_byte_idx, *out_cursor_abs_y, (appCtx->line_h > 0 ? *out_cursor_abs_y / appCtx->line_h : -1) , *out_cursor_exact_x);
     }
@@ -914,10 +966,10 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
     *out_final_cursor_draw_y_baseline = -100;
 
     if (current_input_byte_idx == 0) {
-        int relative_line_idx = 0 - first_visible_abs_line_num_val;
-        if (relative_line_idx >=0 && relative_line_idx < DISPLAY_LINES) {
+        int relative_line_idx_for_cursor_at_0 = 0 - first_visible_abs_line_num_val;
+        if (relative_line_idx_for_cursor_at_0 >=0 && relative_line_idx_for_cursor_at_0 < DISPLAY_LINES) {
             *out_final_cursor_draw_x = TEXT_AREA_X;
-            *out_final_cursor_draw_y_baseline = text_viewport_top_y + relative_line_idx * appCtx->line_h;
+            *out_final_cursor_draw_y_baseline = text_viewport_top_y + relative_line_idx_for_cursor_at_0 * appCtx->line_h;
         }
     }
 
@@ -931,6 +983,7 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
 
         size_t current_block_start_byte_pos_render = (size_t)(p_render_iter - text_to_type);
         TextBlockInfo render_block = get_next_text_block_func(appCtx, &p_render_iter, p_text_end_for_render, render_pen_x);
+
         if (render_block.num_bytes == 0 && p_render_iter >= p_text_end_for_render) break;
         if (render_block.num_bytes == 0 || !render_block.start_ptr) {
             if(p_render_iter < p_text_end_for_render) p_render_iter++; else break;
@@ -939,7 +992,8 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
 
         int current_line_on_screen_y = text_viewport_top_y + current_viewport_line_idx * appCtx->line_h;
 
-        if (current_block_start_byte_pos_render == current_input_byte_idx && current_viewport_line_idx >=0 ) {
+        if (current_block_start_byte_pos_render == current_input_byte_idx &&
+            current_viewport_line_idx >=0 && current_viewport_line_idx < DISPLAY_LINES ) {
             *out_final_cursor_draw_x = render_pen_x;
             *out_final_cursor_draw_y_baseline = current_line_on_screen_y;
         }
@@ -947,21 +1001,17 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
         if (render_block.is_newline) {
             render_current_abs_line_num++;
             render_pen_x = TEXT_AREA_X;
-            // ... (решта коду для нового рядка) ...
-        } else { // Блок є словом, пробілом або табуляцією
-            int x_at_block_render_start = render_pen_x; // X перед цим блоком на поточному рядку
-            // Y на екрані, де почнеться вміст цього блоку (може змінитися через перенесення)
+        } else {
+            int x_at_block_render_start = render_pen_x;
             int y_on_screen_for_block_content = current_line_on_screen_y;
 
-            bool must_wrap_block = false; // Прапорець, що вказує на необхідність перенесення поточного блоку
+            bool must_wrap_block = false;
 
-            if (render_pen_x != TEXT_AREA_X) { // Перевіряємо перенесення, тільки якщо ми не на початку рядка
+            if (render_pen_x != TEXT_AREA_X) {
                 if (render_block.is_word) {
-                    // Умова 1: Саме слово не вміщується на поточний рядок
                     if (render_pen_x + render_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W) {
                         must_wrap_block = true;
                     } else {
-                        // Умова 2: Слово вміщується, але якщо за ним слідує пробіл, то пробіл не вміститься.
                         const char *p_peek_iter = p_render_iter;
                         if (p_peek_iter < p_text_end_for_render) {
                             const char *temp_peek_ptr_for_get_next = p_peek_iter;
@@ -969,10 +1019,10 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
                             TextBlockInfo next_block = get_next_text_block_func(appCtx, &temp_peek_ptr_for_get_next, p_text_end_for_render, pen_x_for_next_block_peek);
 
                             if (next_block.num_bytes > 0 && !next_block.is_word && !next_block.is_newline && !next_block.is_tab) {
+                                Sint32 cp_space_peek = 0;
                                 int first_space_char_width = 0;
                                 const char* temp_s_ptr_peek = next_block.start_ptr;
                                 const char* temp_s_ptr_peek_end = next_block.start_ptr + next_block.num_bytes;
-                                Sint32 cp_space_peek = 0;
 
                                 if (temp_s_ptr_peek < temp_s_ptr_peek_end) {
                                    cp_space_peek = decode_utf8(&temp_s_ptr_peek, temp_s_ptr_peek_end);
@@ -994,26 +1044,26 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
                 render_current_abs_line_num++;
                 current_viewport_line_idx = render_current_abs_line_num - first_visible_abs_line_num_val;
                 if (current_viewport_line_idx >= DISPLAY_LINES) break;
-                current_line_on_screen_y = text_viewport_top_y + current_viewport_line_idx * appCtx->line_h;
+                y_on_screen_for_block_content = text_viewport_top_y + current_viewport_line_idx * appCtx->line_h;
                 render_pen_x = TEXT_AREA_X;
 
                 x_at_block_render_start = render_pen_x;
-                y_on_screen_for_block_content = current_line_on_screen_y;
 
-                 if (current_block_start_byte_pos_render == current_input_byte_idx && current_viewport_line_idx >=0 && current_viewport_line_idx < DISPLAY_LINES) {
+                 if (current_block_start_byte_pos_render == current_input_byte_idx &&
+                     current_viewport_line_idx >=0 && current_viewport_line_idx < DISPLAY_LINES) {
                     *out_final_cursor_draw_x = render_pen_x;
                     *out_final_cursor_draw_y_baseline = y_on_screen_for_block_content;
                 }
             }
-
-            if (current_viewport_line_idx >= 0 ) {
+             // Actual rendering of characters if the line is visible
+            if (current_viewport_line_idx >= 0 && current_viewport_line_idx < DISPLAY_LINES) {
                 if (!render_block.is_tab) {
                     const char *p_char_in_block_iter = render_block.start_ptr;
                     const char *p_char_in_block_iter_end = render_block.start_ptr + render_block.num_bytes;
                     size_t char_byte_offset_in_block_render = 0;
 
                     int current_char_pen_x = x_at_block_render_start;
-                    int current_char_pen_y_baseline = y_on_screen_for_block_content; // Corrected variable name
+                    int current_char_pen_y_baseline = y_on_screen_for_block_content;
                     int current_char_abs_line_num_for_render = render_current_abs_line_num;
 
                     while(p_char_in_block_iter < p_char_in_block_iter_end) {
@@ -1027,10 +1077,11 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
                             continue;
                         }
 
-
                         size_t char_abs_byte_pos_render = current_block_start_byte_pos_render + char_byte_offset_in_block_render;
 
-                        if (char_abs_byte_pos_render == current_input_byte_idx && current_char_render_viewport_line_idx_local >= 0 && current_char_render_viewport_line_idx_local < DISPLAY_LINES) {
+                        if (char_abs_byte_pos_render == current_input_byte_idx &&
+                            current_char_render_viewport_line_idx_local >= 0 &&
+                            current_char_render_viewport_line_idx_local < DISPLAY_LINES) {
                             *out_final_cursor_draw_x = current_char_pen_x;
                             *out_final_cursor_draw_y_baseline = current_char_pen_y_baseline;
                         }
@@ -1046,7 +1097,9 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
 
                             current_char_pen_y_baseline = text_viewport_top_y + current_char_render_viewport_line_idx_local * appCtx->line_h;
                             current_char_pen_x = TEXT_AREA_X;
-                            if (char_abs_byte_pos_render == current_input_byte_idx && current_char_render_viewport_line_idx_local >=0 && current_char_render_viewport_line_idx_local < DISPLAY_LINES) {
+                            if (char_abs_byte_pos_render == current_input_byte_idx &&
+                                current_char_render_viewport_line_idx_local >=0 &&
+                                current_char_render_viewport_line_idx_local < DISPLAY_LINES) {
                                 *out_final_cursor_draw_x = current_char_pen_x;
                                 *out_final_cursor_draw_y_baseline = current_char_pen_y_baseline;
                             }
@@ -1107,24 +1160,26 @@ void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t fina
                 } else {
                     render_pen_x += render_block.pixel_width;
                 }
-            } else {
+            } else { // Block is not visible, but advance pen logically
                  render_pen_x += render_block.pixel_width;
             }
         }
 
+        // If cursor is at the end of this block (after all its chars) and it's visible
         if (current_block_start_byte_pos_render + render_block.num_bytes == current_input_byte_idx) {
             int final_block_viewport_line = render_current_abs_line_num - first_visible_abs_line_num_val;
             if (final_block_viewport_line >=0 && final_block_viewport_line < DISPLAY_LINES) {
-                *out_final_cursor_draw_x = render_pen_x;
+                *out_final_cursor_draw_x = render_pen_x; // Cursor is where this block ended
                 *out_final_cursor_draw_y_baseline = text_viewport_top_y + final_block_viewport_line * appCtx->line_h;
             }
         }
     }
 
+    // If cursor is at the very end of the text
     if (current_input_byte_idx == final_text_len) {
         int final_text_end_viewport_line = render_current_abs_line_num - first_visible_abs_line_num_val;
         if (final_text_end_viewport_line >=0 && final_text_end_viewport_line < DISPLAY_LINES) {
-            *out_final_cursor_draw_x = render_pen_x;
+            *out_final_cursor_draw_x = render_pen_x; // Cursor is at the final pen position
             *out_final_cursor_draw_y_baseline = text_viewport_top_y + final_text_end_viewport_line * appCtx->line_h;
         }
     }
@@ -1151,12 +1206,55 @@ void RenderAppCursor(AppContext *appCtx, bool show_cursor,
 
 // --- Main Function ---
 int main(int argc, char **argv) {
+    // --- Початок діагностичного блоку ---
+    fprintf(stderr, "DEBUG: main() CALLED. Trying to open logs.txt.\n"); // ПОВИННО З'ЯВИТИСЯ НА STDERR
+    fflush(stderr); // Примусово скинути буфер stderr
+
     log_file = fopen("logs.txt", "w");
     if (log_file == NULL) {
-        perror("Failed to open logs.txt for writing. Logging will be disabled for this session");
+        perror("CRITICAL_STDERR: Failed to open logs.txt for writing"); // perror пише на stderr
+        fprintf(stderr, "CRITICAL_STDERR: fopen for logs.txt failed. log_file is NULL.\n");
+        fflush(stderr);
+        // Не виходимо з програми тут, щоб побачити, чи працює решта логування на stderr
     } else {
-        fprintf(log_file, "Application started. Logging to logs.txt.\n");
-        fflush(log_file);
+        fprintf(stderr, "DEBUG: logs.txt opened successfully. log_file pointer: %p\n", (void*)log_file);
+        fflush(stderr);
+
+        int ret_fputs = fputs("Application started. Logging to logs.txt.\n", log_file);
+        if (ret_fputs == EOF) {
+            fprintf(stderr, "DEBUG: fputs to log_file for first line FAILED. ferror: %d\n", ferror(log_file));
+            perror("DEBUG_STDERR_PERROR: fputs (first line)");
+            fflush(stderr);
+        }
+
+        int ret_fflush = fflush(log_file);
+        if (ret_fflush == EOF) {
+            fprintf(stderr, "DEBUG: fflush for first line FAILED. ferror: %d\n", ferror(log_file));
+            perror("DEBUG_STDERR_PERROR: fflush (first line)");
+            fflush(stderr);
+        }
+
+        // Тест другого запису
+        fprintf(stderr, "DEBUG: Attempting SECOND write to log_file.\n");
+        fflush(stderr);
+        ret_fputs = fputs("SECOND LINE TEST.\n", log_file);
+        if (ret_fputs == EOF) {
+            fprintf(stderr, "DEBUG: fputs for SECOND LINE TEST FAILED. ferror: %d\n", ferror(log_file));
+            perror("DEBUG_STDERR_PERROR: fputs (second line)");
+            fflush(stderr);
+        } else {
+            fprintf(stderr, "DEBUG: fputs for SECOND LINE TEST succeeded (returned non-EOF).\n");
+            fflush(stderr);
+        }
+        ret_fflush = fflush(log_file);
+        if (ret_fflush == EOF) {
+            fprintf(stderr, "DEBUG: fflush for SECOND LINE TEST FAILED. ferror: %d\n", ferror(log_file));
+            perror("DEBUG_STDERR_PERROR: fflush (second line)");
+            fflush(stderr);
+        } else {
+             fprintf(stderr, "DEBUG: fflush for SECOND LINE TEST succeeded.\n");
+             fflush(stderr);
+        }
     }
 
     AppContext appCtx = {0};
@@ -1165,17 +1263,35 @@ int main(int argc, char **argv) {
 
     char *base_path = SDL_GetBasePath();
     char full_path_to_text_file[1024];
+    const char* resource_file_name = TEXT_FILE_PATH_BASENAME;
 
     if (base_path) {
         #ifdef __APPLE__
-            snprintf(full_path_to_text_file, sizeof(full_path_to_text_file), "%s../Resources/%s", base_path, TEXT_FILE_PATH);
+            snprintf(full_path_to_text_file, sizeof(full_path_to_text_file), "%s../Resources/%s", base_path, resource_file_name);
         #else
-            snprintf(full_path_to_text_file, sizeof(full_path_to_text_file), "%s%s", base_path, TEXT_FILE_PATH);
+            // 1. Try next to executable
+            snprintf(full_path_to_text_file, sizeof(full_path_to_text_file), "%s%s", base_path, resource_file_name);
+            FILE* test_file = fopen(full_path_to_text_file, "rb");
+            if (test_file) {
+                fclose(test_file);
+            } else {
+                // 2. Try ../share/PROJECT_NAME_STR/resource_file_name
+                snprintf(full_path_to_text_file, sizeof(full_path_to_text_file), "%s../share/%s/%s", base_path, PROJECT_NAME_STR, resource_file_name);
+                test_file = fopen(full_path_to_text_file, "rb");
+                 if (test_file) {
+                    fclose(test_file);
+                } else {
+                    // Fallback to current directory if not found in expected install location
+                    fprintf(stderr, "Warning: Could not find '%s' relative to executable or in share dir. Trying current dir.\n", resource_file_name);
+                    strncpy(full_path_to_text_file, resource_file_name, sizeof(full_path_to_text_file) - 1);
+                    full_path_to_text_file[sizeof(full_path_to_text_file) - 1] = '\0';
+                }
+            }
         #endif
         SDL_free(base_path);
     } else {
-        fprintf(stderr, "Warning: SDL_GetBasePath() failed. Trying relative path for '%s'\n", TEXT_FILE_PATH);
-        strncpy(full_path_to_text_file, TEXT_FILE_PATH, sizeof(full_path_to_text_file) - 1);
+        fprintf(stderr, "Warning: SDL_GetBasePath() failed. Trying relative path for '%s'\n", resource_file_name);
+        strncpy(full_path_to_text_file, resource_file_name, sizeof(full_path_to_text_file) - 1);
         full_path_to_text_file[sizeof(full_path_to_text_file) - 1] = '\0';
     }
 
@@ -1184,6 +1300,7 @@ int main(int argc, char **argv) {
     #endif
 
     FILE *text_file_handle_main = fopen(full_path_to_text_file, "rb");
+
     if (!text_file_handle_main) {
         perror("Failed to open text file");
         fprintf(stderr, "Attempted to open: %s\n", full_path_to_text_file);
@@ -1224,9 +1341,11 @@ int main(int argc, char **argv) {
 
     if (bytes_actually_read != raw_text_len_main) {
         fprintf(stderr, "Warning: Mismatch in file size and bytes read. Read %zu, expected %zu. Using %zu.\n", bytes_actually_read, raw_text_len_main, bytes_actually_read);
+        #if ENABLE_GAME_LOGS
         if (log_file) {
             fprintf(log_file, "WARN: Mismatch in file size and bytes read. Read %zu, expected %zu. Using %zu.\n", bytes_actually_read, raw_text_len_main, bytes_actually_read);
         }
+        #endif
         raw_text_len_main = bytes_actually_read;
     }
     raw_text_content_main[bytes_actually_read] = '\0';
@@ -1244,7 +1363,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (!InitializeApp(&appCtx, "TypingApp")) {
+    if (!InitializeApp(&appCtx, "TypingApp")) { // Changed title
         free(text_to_type);
         if (log_file) {
             fprintf(log_file, "ERROR: Failed to initialize app. appCtx.line_h = %d\n", appCtx.line_h);
@@ -1328,8 +1447,8 @@ int main(int argc, char **argv) {
 
                     size_t next_logical_pos_idx = 0;
                     const char* p_next_char_temp = text_to_type + current_input_byte_idx_main;
-                    const char* p_next_char_temp_end = text_to_type + final_text_len_val; // End of the whole text
-                    Sint32 cp_next_temp = decode_utf8(&p_next_char_temp, p_next_char_temp_end); // Advances p_next_char_temp
+                    const char* p_next_char_temp_end = text_to_type + final_text_len_val;
+                    Sint32 cp_next_temp = decode_utf8(&p_next_char_temp, p_next_char_temp_end);
                     if (cp_next_temp > 0) {
                         next_logical_pos_idx = (size_t)(p_next_char_temp - text_to_type);
                     } else {
@@ -1404,19 +1523,72 @@ int main(int argc, char **argv) {
     SDL_StopTextInput();
     if (typing_started_main) {
         CalculateAndPrintAppStats(start_time_main, current_input_byte_idx_main, text_to_type, final_text_len_val, input_buffer);
+
+        // --- BEGIN MODIFICATION: Update text.txt to remove typed portion ---
+        // Check if any progress was made in the source text.
+        // current_input_byte_idx_main represents the byte offset in text_to_type the user reached.
+        if (current_input_byte_idx_main > 0) {
+            size_t num_bytes_to_remove_from_source = current_input_byte_idx_main;
+
+            // Ensure we don't try to remove more bytes than exist in the source text.
+            // This handles cases where input might have technically gone "past the end"
+            // (e.g., errors typed after the last character of the source text).
+            if (num_bytes_to_remove_from_source > final_text_len_val) {
+                num_bytes_to_remove_from_source = final_text_len_val;
+            }
+
+            // Proceed only if the path to the text file is valid.
+            if (full_path_to_text_file[0] != '\0') {
+                FILE *output_text_file_handle = fopen(full_path_to_text_file, "w"); // Open in write mode ("w") to overwrite.
+                if (output_text_file_handle) {
+                    // Pointer to the beginning of the text that should remain.
+                    const char *remaining_text_content_ptr = text_to_type + num_bytes_to_remove_from_source;
+                    // Length of the text that should remain.
+                    size_t remaining_content_len = final_text_len_val - num_bytes_to_remove_from_source;
+
+                    if (remaining_content_len > 0) {
+                        // Write the remaining text to the file.
+                        if (fwrite(remaining_text_content_ptr, 1, remaining_content_len, output_text_file_handle) == remaining_content_len) {
+                            if (log_file) fprintf(log_file, "Successfully updated '%s', wrote %zu bytes of remaining text.\n", full_path_to_text_file, remaining_content_len);
+                        } else {
+                            // Error during writing.
+                            if (log_file) fprintf(log_file, "Error: Failed to write all remaining bytes to '%s'.\n", full_path_to_text_file);
+                            perror("Error writing remaining text to text file"); // Also print to stderr for visibility.
+                        }
+                    } else {
+                        // All text was processed (num_bytes_to_remove_from_source == final_text_len_val),
+                        // so remaining_content_len is 0. The file is effectively truncated by opening in "w" mode.
+                        if (log_file) fprintf(log_file, "Successfully updated '%s'. All text was processed; file is now empty.\n", full_path_to_text_file);
+                    }
+                    fclose(output_text_file_handle);
+                    output_text_file_handle = NULL;
+                } else {
+                    // Error opening the file for writing.
+                    if (log_file) fprintf(log_file, "Error: Could not open '%s' for writing to update content.\n", full_path_to_text_file);
+                    perror("Error opening text file for writing"); // To stderr.
+                }
+            } else {
+                 // This case should ideally not happen if file reading was successful.
+                 if (log_file) fprintf(log_file, "Error: Text file path is empty, cannot update '%s'.\n", TEXT_FILE_PATH_BASENAME);
+            }
+        } else { // typing_started_main is true, but current_input_byte_idx_main is 0 (no characters of source text processed).
+            if (log_file) {
+                fprintf(log_file, "Typing session started but no characters were advanced in source text. Text file '%s' not modified.\n", full_path_to_text_file);
+            }
+        }
+        // --- END MODIFICATION ---
+
     } else {
-        printf("No typing started. No stats to display.\n");
+        // No typing was started at all.
+        printf("No typing started. No stats to display. Text file not modified.\n");
+        if (log_file) {
+            // Use full_path_to_text_file if available, otherwise TEXT_FILE_PATH_BASENAME for logging.
+            const char* log_path = (full_path_to_text_file[0] != '\0') ? full_path_to_text_file : TEXT_FILE_PATH_BASENAME;
+            fprintf(log_file, "No typing started. Text file '%s' not modified.\n", log_path);
+        }
     }
 
     CleanupApp(&appCtx);
     if (text_to_type) free(text_to_type); text_to_type = NULL;
-    if (input_buffer) free(input_buffer); input_buffer = NULL;
-
-    if (log_file) {
-        fprintf(log_file, "Application finished gracefully.\n");
-        fflush(log_file);
-        fclose(log_file);
-        log_file = NULL;
-    }
     return 0;
 }
