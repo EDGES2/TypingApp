@@ -1,4 +1,3 @@
-// main.c
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -12,7 +11,7 @@
 #define WINDOW_W     800
 #define WINDOW_H     200
 #define FONT_SIZE    14
-#define MAX_TEXT_LEN 10000
+#define MAX_TEXT_LEN 50000 // Increased from 10000
 #ifndef TEXT_FILE_PATH
 #define TEXT_FILE_PATH "text.txt"
 #endif
@@ -21,7 +20,7 @@
 #define TEXT_AREA_PADDING_Y 10
 #define TEXT_AREA_W (WINDOW_W - (2 * TEXT_AREA_X))
 #define DISPLAY_LINES 3
-#define CURSOR_TARGET_VIEWPORT_LINE 1 
+#define CURSOR_TARGET_VIEWPORT_LINE 1
 #define TAB_SIZE_IN_SPACES 4
 
 #define ENABLE_DETAILED_LOGGING 0 // Set to 1 to enable verbose logging, 0 to disable
@@ -303,20 +302,34 @@ void CleanupApp(AppContext *appCtx) {
 }
 
 char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* out_final_text_len) {
-    char *processed_text = (char*)malloc(raw_text_len + 1);
-    if (!processed_text) {
-        perror("Failed to allocate memory for processed_text in PreprocessText");
-        if(out_final_text_len) *out_final_text_len = 0;
+    if (raw_text_buffer == NULL || out_final_text_len == NULL) {
+        if (out_final_text_len) *out_final_text_len = 0;
+        return NULL;
+    }
+    if (raw_text_len == 0) {
+        *out_final_text_len = 0;
+        char* empty_str = (char*)malloc(1);
+        if (empty_str) empty_str[0] = '\0';
+        return empty_str;
+    }
+
+    // Allocate a temporary buffer. Max possible expansion: every char becomes 3 bytes (UTF-8) + spaces.
+    // A factor of 1.5 should be generally safe for intermediate, then realloc.
+    size_t temp_buffer_size = raw_text_len + (raw_text_len / 2) + 2; // +2 for potential space and null terminator
+    char *temp_buffer = (char*)malloc(temp_buffer_size);
+    if (!temp_buffer) {
+        perror("Failed to allocate temporary buffer in PreprocessText");
+        *out_final_text_len = 0;
         return NULL;
     }
 
-    size_t pt_idx = 0;
+    size_t temp_idx = 0;
     const char* p_read = raw_text_buffer;
     const char* p_read_end = raw_text_buffer + raw_text_len;
-    bool at_line_start = true;
-    bool last_char_written_was_space = true;
-    int newlines_in_a_row = 0;
+    int consecutive_newlines = 0;
+    bool last_char_was_actual_content = false;
 
+    // Pass 1: Normalize newlines, replace special characters, handle \r
     while(p_read < p_read_end) {
         const char* char_start_original = p_read;
         Sint32 cp = decode_utf8(&p_read, p_read_end);
@@ -327,53 +340,137 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
             continue;
         }
 
-        bool replaced_quote = false;
+        bool replaced_char = false;
+        char replacement_char = 0;
+
         if (cp == 0x2018 || cp == 0x2019 || cp == 0x201C || cp == 0x201D) {
-            cp = '\'';
-            replaced_quote = true;
+            replacement_char = '\'';
+            replaced_char = true;
+            char_len_original = 1;
+        } else if (cp == 0x2014) {
+            replacement_char = '-';
+            replaced_char = true;
+            char_len_original = 1;
         }
 
         if (cp == '\n') {
-            newlines_in_a_row++;
-            if (pt_idx > 0 && processed_text[pt_idx-1] == ' ') {
-                pt_idx--;
-            }
-            if ( newlines_in_a_row == 1 && (pt_idx > 0 || (pt_idx == 0 && !at_line_start)) ) {
-                if (pt_idx < raw_text_len) processed_text[pt_idx++] = '\n'; else break;
-            }
-            at_line_start = true;
-            last_char_written_was_space = true;
-        } else if (isspace((unsigned char)cp)) {
-            if (!at_line_start && !last_char_written_was_space) {
-                if (pt_idx < raw_text_len) processed_text[pt_idx++] = ' '; else break;
-                last_char_written_was_space = true;
-            }
+            consecutive_newlines++;
+            last_char_was_actual_content = false;
+        } else if (cp == '\r') {
+            last_char_was_actual_content = false;
+            continue;
         } else {
-            if (at_line_start && newlines_in_a_row == 0 && pt_idx > 0 &&
-                processed_text[pt_idx-1] != '\n' && !last_char_written_was_space) {
-                 if (pt_idx < raw_text_len) processed_text[pt_idx++] = ' '; else break;
+            if (consecutive_newlines > 0) {
+                if (temp_idx > 0 && temp_buffer[temp_idx-1] != '\n') {
+                    if (temp_idx < temp_buffer_size -1) temp_buffer[temp_idx++] = (consecutive_newlines >= 2) ? '\n' : ' ';
+                } else if (consecutive_newlines >= 2) {
+                     if (temp_idx < temp_buffer_size -1) temp_buffer[temp_idx++] = '\n';
+                } else {
+                    if (temp_idx > 0 && temp_buffer[temp_idx-1] != ' ' && temp_buffer[temp_idx-1] != '\n') {
+                         if (temp_idx < temp_buffer_size -1) temp_buffer[temp_idx++] = ' ';
+                    } else if (temp_idx == 0 && last_char_was_actual_content) {
+                         if (temp_idx < temp_buffer_size -1) temp_buffer[temp_idx++] = ' ';
+                    }
+                }
             }
+            consecutive_newlines = 0;
 
-            if (replaced_quote) {
-                 if (pt_idx < raw_text_len) processed_text[pt_idx++] = (char)cp; else break;
+            if (replaced_char) {
+                if (temp_idx < temp_buffer_size -1) temp_buffer[temp_idx++] = replacement_char; else break;
             } else {
-                if (pt_idx + char_len_original <= raw_text_len) {
-                    memcpy(processed_text + pt_idx, char_start_original, char_len_original);
-                    pt_idx += char_len_original;
+                if (temp_idx + char_len_original < temp_buffer_size) {
+                    memcpy(temp_buffer + temp_idx, char_start_original, char_len_original);
+                    temp_idx += char_len_original;
                 } else { break; }
             }
-            at_line_start = false;
-            last_char_written_was_space = false;
-            newlines_in_a_row = 0;
+            last_char_was_actual_content = (cp != ' ');
         }
     }
-    while (pt_idx > 0 && isspace((unsigned char)processed_text[pt_idx-1])) {
+
+    if (consecutive_newlines > 0) {
+        if (temp_idx > 0 && temp_buffer[temp_idx-1] != '\n' && temp_buffer[temp_idx-1] != ' ') {
+             if (temp_idx < temp_buffer_size -1) temp_buffer[temp_idx++] = (consecutive_newlines >= 2) ? '\n' : ' ';
+        } else if (consecutive_newlines >= 2) {
+            if (temp_idx < temp_buffer_size -1) temp_buffer[temp_idx++] = '\n';
+        }
+    }
+    temp_buffer[temp_idx] = '\0';
+
+    char *processed_text = (char*)malloc(temp_idx + 1);
+    if (!processed_text) {
+        perror("Failed to allocate processed_text in PreprocessText");
+        free(temp_buffer);
+        *out_final_text_len = 0;
+        return NULL;
+    }
+
+    size_t pt_idx = 0;
+    bool last_char_was_a_space_in_pass2 = true;
+
+    const char* p_pass2_read = temp_buffer;
+    const char* p_pass2_end = temp_buffer + temp_idx;
+
+    // Trim leading spaces/newlines from temp_buffer before copying
+    while(p_pass2_read < p_pass2_end && (*p_pass2_read == ' ' || *p_pass2_read == '\n' || *p_pass2_read == '\r')) {
+        p_pass2_read++;
+    }
+
+    while(p_pass2_read < p_pass2_end) {
+        const char* char_start_pass2 = p_pass2_read;
+        Sint32 cp_pass2 = decode_utf8((const char**)&char_start_pass2, p_pass2_end); // Pass address of p_pass2_read
+        size_t current_char_len_pass2 = (size_t)(char_start_pass2 - p_pass2_read);
+        p_pass2_read = char_start_pass2; // Update p_pass2_read to after the decoded char
+
+
+        if(cp_pass2 <= 0) {
+            if (current_char_len_pass2 == 0 && p_pass2_read < p_pass2_end) p_pass2_read++; // Ensure progress on invalid char
+            continue;
+        }
+
+        if (cp_pass2 == ' ') {
+            if (!last_char_was_a_space_in_pass2) {
+                processed_text[pt_idx++] = ' ';
+            }
+            last_char_was_a_space_in_pass2 = true;
+        } else if (cp_pass2 == '\n') {
+            while(pt_idx > 0 && processed_text[pt_idx-1] == ' ') {
+                pt_idx--;
+            }
+            if (pt_idx == 0 || processed_text[pt_idx-1] != '\n') {
+                 processed_text[pt_idx++] = '\n';
+            }
+            last_char_was_a_space_in_pass2 = true;
+        } else {
+            if (cp_pass2 < 128) { // ASCII after replacement
+                processed_text[pt_idx++] = (char)cp_pass2;
+            } else { // Multi-byte
+                 memcpy(processed_text + pt_idx, temp_buffer + (p_pass2_read - current_char_len_pass2 - temp_buffer), current_char_len_pass2);
+                 pt_idx += current_char_len_pass2;
+            }
+            last_char_was_a_space_in_pass2 = false;
+        }
+    }
+
+    while (pt_idx > 0 && (processed_text[pt_idx-1] == ' ' || processed_text[pt_idx-1] == '\n')) {
         pt_idx--;
     }
     processed_text[pt_idx] = '\0';
-    if(out_final_text_len) *out_final_text_len = pt_idx;
-    return processed_text;
+
+    *out_final_text_len = pt_idx;
+    free(temp_buffer);
+
+    char* final_text = (char*)realloc(processed_text, pt_idx + 1);
+    if (!final_text && pt_idx > 0) {
+        return processed_text;
+    } else if (!final_text && pt_idx == 0) {
+        free(processed_text);
+        char* empty_str = (char*)malloc(1);
+        if (empty_str) empty_str[0] = '\0';
+        return empty_str;
+    }
+    return final_text ? final_text : processed_text;
 }
+
 
 void HandleAppEvents(SDL_Event *event, size_t *current_input_byte_idx,
                      char *input_buffer, size_t final_text_len,
@@ -567,7 +664,7 @@ void RenderLiveStats(AppContext *appCtx, Uint32 current_ticks, Uint32 start_time
     snprintf(acc_buf, sizeof(acc_buf), "Acc: %.0f%%", live_accuracy);
     snprintf(words_buf, sizeof(words_buf), "Words: %d", live_typed_words_count);
 
-    SDL_Color stat_color = appCtx->palette[COL_TEXT];
+    SDL_Color stat_color = appCtx->palette[COL_CURSOR];
 
     int current_x_render_pos = timer_x_pos + timer_width + 20;
     int stats_y_render_pos = timer_y_pos + (timer_height - appCtx->line_h) / 2;
