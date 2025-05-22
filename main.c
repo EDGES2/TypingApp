@@ -31,7 +31,7 @@
 
 // Logging switch: 1 to enable regular game event logs, 0 to disable them.
 // Critical errors to stderr and app start/finish to log_file (if open) are always active.
-#define ENABLE_GAME_LOGS 0 // User requested to disable detailed logs by default
+#define ENABLE_GAME_LOGS 1 // User requested to disable detailed logs by default
 
 // Color palette indices
 enum { COL_BG, COL_TEXT, COL_CORRECT, COL_INCORRECT, COL_CURSOR, N_COLORS };
@@ -355,60 +355,96 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
 
     // Pass 1: Character replacements and initial newline/CR handling
     while (p_read < p_read_end) {
-        if (temp_w_idx + 4 >= temp_buffer_capacity) {
-            temp_buffer_capacity = temp_buffer_capacity * 2 + 4;
-            char* new_temp_buffer = (char*)realloc(temp_buffer, temp_buffer_capacity);
-            if (!new_temp_buffer) {
-                perror("Failed to reallocate temporary buffer in PreprocessText (Pass 1)");
-                free(temp_buffer);
-                *out_final_text_len = 0;
-                return NULL;
-            }
-            temp_buffer = new_temp_buffer;
+    // 1. Розширення буфера за потреби
+    if (temp_w_idx + 4 >= temp_buffer_capacity) { // Ensure space for up to 4 bytes (max UTF-8 char or replacement)
+        temp_buffer_capacity = temp_buffer_capacity * 2 + 4;
+        char *new_temp_buffer = (char *)realloc(temp_buffer, temp_buffer_capacity);
+        if (!new_temp_buffer) {
+            perror("Failed to reallocate temporary buffer in PreprocessText (Pass 1)");
+            free(temp_buffer);
+            *out_final_text_len = 0;
+            return NULL;
         }
+        temp_buffer = new_temp_buffer;
+    }
 
-        if (*p_read == '\r') {
-            p_read++;
-            if (p_read < p_read_end && *p_read == '\n') {
-                p_read++;
-            }
-            temp_buffer[temp_w_idx++] = '\n';
-            continue;
-        }
+    // 2. Нормалізація CR / CR+LF → LF
+    if (*p_read == '\r') {
+        p_read++;
+        if (p_read < p_read_end && *p_read == '\n') p_read++;
+        temp_buffer[temp_w_idx++] = '\n';
+        continue;
+    }
 
-        if (*p_read == '-' && (p_read + 1 < p_read_end) && *(p_read + 1) == '-') {
+    // 3. Спеціальні заміни Unicode-символів
+    //   • "--" → EM DASH (U+2014)
+    //   • '—' (EM DASH U+2014) → '–' (EN DASH U+2013)  <-- ADDED RULE DESCRIPTION
+    //   • "…" → "..."
+    //   • «розумні» лапки → апостроф '
+    if (*p_read == '-' && (p_read + 1 < p_read_end) && *(p_read + 1) == '-') {
+        // EM DASH (U+2014) в UTF-8
+        temp_buffer[temp_w_idx++] = (char)0xE2;
+        temp_buffer[temp_w_idx++] = (char)0x80;
+        temp_buffer[temp_w_idx++] = (char)0x94;
+        p_read += 2;
+        continue;
+    }
+
+    const char *char_start = p_read;
+    Sint32 cp = decode_utf8(&p_read, p_read_end);
+    size_t orig_len = (size_t)(p_read - char_start);
+    if (cp <= 0) {
+        if (orig_len == 0 && p_read < p_read_end) p_read++; // Advance if stuck on invalid byte
+        continue;
+    }
+
+    // --- START OF ADDED LOGIC ---
+    // Заміна EM DASH (U+2014) на EN DASH (U+2013)
+    if (cp == 0x2014) { // Якщо декодований символ - це EM DASH (U+2014)
+        // Перевіряємо, чи достатньо місця для EN DASH (3 байти UTF-8)
+        if (temp_w_idx + 3 <= temp_buffer_capacity) {
             temp_buffer[temp_w_idx++] = (char)0xE2;
             temp_buffer[temp_w_idx++] = (char)0x80;
-            temp_buffer[temp_w_idx++] = (char)0x94; // EM DASH —
-            p_read += 2;
-            continue;
-        }
-
-        const char* char_start_original = p_read;
-        Sint32 cp = decode_utf8(&p_read, p_read_end);
-        size_t char_len_original = (size_t)(p_read - char_start_original);
-
-        if (cp <= 0) {
-            if (char_len_original == 0 && p_read < p_read_end) p_read++;
-            continue;
-        }
-
-        if (cp == 0x2026) { // HORIZONTAL ELLIPSIS … -> ...
-             if (temp_w_idx + 3 <= temp_buffer_capacity) {
-                temp_buffer[temp_w_idx++] = '.';
-                temp_buffer[temp_w_idx++] = '.';
-                temp_buffer[temp_w_idx++] = '.';
-             } else break;
-        } else if (cp == 0x2018 || cp == 0x2019 || cp == 0x201C || cp == 0x201D) { // Smart quotes
-            if (temp_w_idx + 1 <= temp_buffer_capacity) temp_buffer[temp_w_idx++] = '\''; else break;
-        } else { // Other characters (including \n and existing em-dashes)
-            if (temp_w_idx + char_len_original <= temp_buffer_capacity) {
-                memcpy(temp_buffer + temp_w_idx, char_start_original, char_len_original);
-                temp_w_idx += char_len_original;
-            } else break;
+            temp_buffer[temp_w_idx++] = (char)0x93; // EN DASH (U+2013)
+            continue; // Переходимо до наступного символу вхідного тексту
+        } else {
+            // Недостатньо місця в буфері. Це не повинно статися через логіку розширення вище.
+            // Для безпеки, зупиняємо обробку, як в інших подібних випадках.
+            break;
         }
     }
-    temp_buffer[temp_w_idx] = '\0';
+    // --- END OF ADDED LOGIC ---
+
+    if (cp == 0x2026) { // HORIZONTAL ELLIPSIS (U+2026)
+        if (temp_w_idx + 3 <= temp_buffer_capacity) { // "..." is 3 bytes
+            temp_buffer[temp_w_idx++] = '.';
+            temp_buffer[temp_w_idx++] = '.';
+            temp_buffer[temp_w_idx++] = '.';
+            continue;
+        }
+        break; // Not enough space
+    }
+    if (cp == 0x2018 || cp == 0x2019 || cp == 0x201C || cp == 0x201D) { // Smart quotes (U+2018, U+2019, U+201C, U+201D)
+        if (temp_w_idx + 1 <= temp_buffer_capacity) { // "'" is 1 byte
+            temp_buffer[temp_w_idx++] = '\'';
+            continue;
+        }
+        break; // Not enough space
+    }
+
+    // 4. Всі інші символи — копіюємо «як є»
+    //    (Якщо це був EM DASH, ми б вже виконали 'continue' вище)
+    if (temp_w_idx + orig_len <= temp_buffer_capacity) {
+        memcpy(temp_buffer + temp_w_idx, char_start, orig_len);
+        temp_w_idx += orig_len;
+    } else {
+        // Not enough space for the original character; should be rare due to initial buffer check.
+        break;
+    }
+}
+
+// 5. Завершуємо нуль-термінатором
+temp_buffer[temp_w_idx] = '\0';
 
     // Pass 2: Process newlines, collapse multiple spaces, trim leading/trailing whitespace
     char *processed_text = (char*)malloc(temp_w_idx + 1);
