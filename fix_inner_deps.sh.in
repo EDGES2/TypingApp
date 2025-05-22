@@ -1,40 +1,72 @@
 #!/bin/bash
-# Args: 1=FRAMEWORKS_DIR, 2=LIB_NAME_TO_PROCESS, 3=OTOOL_EXECUTABLE, 4=HOMEBREW_PREFIX, 5...=LIBS_IN_BUNDLE_BASENAMES_ARRAY
-set -euo pipefail # Exit on error, treat unset variables as an error, and pipefail
+# fix_inner_deps.sh.in (v8 - focus on bundled names list)
 
-ARG_FRAMEWORKS_DIR="$1"
-ARG_LIB_NAME_TO_PROCESS="$2"
-ARG_OTOOL_EXECUTABLE="$3"
-ARG_HOMEBREW_PREFIX="$4"
-shift 4 # Remove the first four processed arguments
-# Remaining arguments are the basenames of bundled libraries
-BUNDLED_LIBS_BASENAMES_ARRAY=("$@")
+set -e
+# set -x
 
-echo "Processing internal dependencies for ${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
-echo "Bundled library basenames considered: ${BUNDLED_LIBS_BASENAMES_ARRAY[*]}"
+FRAMEWORKS_DIR_ARG="$1"
+TARGET_LIB_BEING_FIXED_BASENAME_ARG="$2" # Це FINAL_BUNDLED_LIB_NAME з CMake (наприклад, libSDL2-2.0.0.dylib)
+OTOOL_EXECUTABLE_ARG="$3"
+HOMEBREW_PREFIX_ARG="$4"
+shift 4
+# ALL_BUNDLED_FINAL_NAMES_ARGS - це список FINAL_BUNDLED_LIB_NAME з CMake,
+# тобто імена, під якими файли фактично лежать у Frameworks.
+ALL_BUNDLED_FINAL_NAMES_ARGS=("$@")
 
-# In this script, awk '{print $1}' is correct as it's directly interpreted by bash/awk
-# and not subject to multiple layers of CMake/Ninja string processing.
-for dep_path in $("${ARG_OTOOL_EXECUTABLE}" -L "${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}" | grep -E "^\\s*${ARG_HOMEBREW_PREFIX}" | awk '{print $1}'); do
-    dep_name=$(basename "${dep_path}")
-    is_in_bundle=0
-    actual_bundled_dep_name=""
+TARGET_LIB_PATH_IN_FRAMEWORKS="${FRAMEWORKS_DIR_ARG}/${TARGET_LIB_BEING_FIXED_BASENAME_ARG}"
 
-    for bundled_lib_name_iter in "${BUNDLED_LIBS_BASENAMES_ARRAY[@]}"; do
-        # Check if dep_name matches any of the known basenames of bundled libraries
-        if [[ "${dep_name}" == "${bundled_lib_name_iter}" ]]; then
-            is_in_bundle=1
-            actual_bundled_dep_name="${bundled_lib_name_iter}"
+echo "--- [SCRIPT v8] Running fix_inner_deps for: ${TARGET_LIB_PATH_IN_FRAMEWORKS} ---"
+echo "--- [SCRIPT v8] Target Library (being fixed): ${TARGET_LIB_BEING_FIXED_BASENAME_ARG}"
+
+if [ ! -f "${TARGET_LIB_PATH_IN_FRAMEWORKS}" ]; then
+    echo "--- [SCRIPT v8] Error: Target library ${TARGET_LIB_PATH_IN_FRAMEWORKS} not found to fix its dependencies!"
+    exit 1
+fi
+
+LINKED_DEPS=$( "${OTOOL_EXECUTABLE_ARG}" -L "${TARGET_LIB_PATH_IN_FRAMEWORKS}" | tail -n +2 | grep "${HOMEBREW_PREFIX_ARG}" | awk '{print $1}' )
+
+if [ -z "$LINKED_DEPS" ]; then
+    echo "--- [SCRIPT v8] No Homebrew dependencies found (or to fix) for ${TARGET_LIB_BEING_FIXED_BASENAME_ARG}."
+else
+    echo "--- [SCRIPT v8] Found Homebrew dependencies for ${TARGET_LIB_BEING_FIXED_BASENAME_ARG}:"
+    echo "${LINKED_DEPS}"
+fi
+
+for DEP_PATH in ${LINKED_DEPS}; do
+    DEP_ORIGINAL_BASENAME=$(basename "${DEP_PATH}")
+
+    # Визначаємо, яке ім'я ця залежність МАЄ МАТИ в нашому бандлі,
+    # базуючись на тому, як ми її назвали б у CMakeLists.txt
+    PROSPECTIVE_NAME_IN_BUNDLE=""
+    if [[ "${DEP_ORIGINAL_BASENAME}" == "libSDL2.dylib" || "${DEP_ORIGINAL_BASENAME}" == "libSDL2-2.0.0.dylib" ]]; then
+        PROSPECTIVE_NAME_IN_BUNDLE="libSDL2-2.0.0.dylib"
+    elif [[ "${DEP_ORIGINAL_BASENAME}" == "libSDL2_ttf.dylib" || "${DEP_ORIGINAL_BASENAME}" == "libSDL2_ttf-2.0.0.dylib" ]]; then
+        PROSPECTIVE_NAME_IN_BUNDLE="libSDL2_ttf-2.0.0.dylib"
+    else
+        # Для інших (freetype, harfbuzz, glib, png, intl, pcre2 etc.),
+        # їх ORIGINAL_BASENAME (наприклад, libfreetype.6.dylib) і є тим іменем,
+        # під яким вони мали бути скопійовані в Frameworks згідно логіки FINAL_BUNDLED_LIB_NAME у CMake.
+        PROSPECTIVE_NAME_IN_BUNDLE="${DEP_ORIGINAL_BASENAME}"
+    fi
+
+    IS_ACTUALLY_BUNDLED=false
+    for bundled_final_name_check in "${ALL_BUNDLED_FINAL_NAMES_ARGS[@]}"; do
+        if [ "${PROSPECTIVE_NAME_IN_BUNDLE}" == "${bundled_final_name_check}" ]; then
+            IS_ACTUALLY_BUNDLED=true
             break
         fi
     done
 
-    if [[ "${is_in_bundle}" -eq 1 ]]; then
-        echo "  Fixing internal ref ${dep_path} -> @rpath/${actual_bundled_dep_name} in ${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
-        install_name_tool -change "${dep_path}" "@rpath/${actual_bundled_dep_name}" "${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
+    if ${IS_ACTUALLY_BUNDLED}; then
+        # Якщо ми очікуємо, що ця бібліотека (під ім'ям PROSPECTIVE_NAME_IN_BUNDLE) є в нашому бандлі,
+        # тоді намагаємося виправити посилання.
+        # Перевірка -f "${FRAMEWORKS_DIR_ARG}/${PROSPECTIVE_NAME_IN_BUNDLE}" тут може бути зайвою,
+        # якщо ми довіряємо, що CMake скопіював усе зі списку ALL_FINAL_BUNDLED_NAMES_LIST.
+        echo "--- [SCRIPT v8] Fixing dependency in ${TARGET_LIB_BEING_FIXED_BASENAME_ARG}: ${DEP_PATH} -> @rpath/${PROSPECTIVE_NAME_IN_BUNDLE}"
+        /usr/bin/install_name_tool -change "${DEP_PATH}" "@rpath/${PROSPECTIVE_NAME_IN_BUNDLE}" "${TARGET_LIB_PATH_IN_FRAMEWORKS}"
     else
-        echo "  Skipping internal ref ${dep_path} (basename '${dep_name}' not in bundled list) for ${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
+        echo "--- [SCRIPT v8] Warning: Dependency ${DEP_PATH} of ${TARGET_LIB_BEING_FIXED_BASENAME_ARG} (prospective bundled name: ${PROSPECTIVE_NAME_IN_BUNDLE}) is NOT in the list of FINAL bundled names. Cannot fix this link. Check LIBS_TO_BUNDLE in CMake."
     fi
 done
-echo "Finished processing internal dependencies for ${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
-echo "-----------------------------------------------------"
+
+echo "--- [SCRIPT v8] Finished fix_inner_deps for: ${TARGET_LIB_BEING_FIXED_BASENAME_ARG} ---"
