@@ -1,192 +1,268 @@
-cmake_minimum_required(VERSION 3.20)
-project(TypingApp C)
+cmake_minimum_required(VERSION 3.20) # [cite: 1]
+project(TypingApp C) # [cite: 1]
 
-set(CMAKE_C_STANDARD 23)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 23) # [cite: 1]
+set(CMAKE_C_STANDARD_REQUIRED ON) # [cite: 1]
 
-# Шлях до Homebrew для arm64
-set(HOMEBREW_PREFIX "/opt/homebrew")
-set(ENV{PKG_CONFIG_PATH} "${HOMEBREW_PREFIX}/lib/pkgconfig")
+# Path to Homebrew for arm64 [cite: 1]
+set(HOMEBREW_PREFIX "/opt/homebrew") # [cite: 1]
+set(ENV{PKG_CONFIG_PATH} "${HOMEBREW_PREFIX}/lib/pkgconfig") # [cite: 1]
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SDL2 REQUIRED sdl2)
-pkg_check_modules(SDL2_TTF REQUIRED sdl2_ttf)
+find_package(PkgConfig REQUIRED) # [cite: 1]
+pkg_check_modules(SDL2 REQUIRED sdl2) # [cite: 1]
+pkg_check_modules(SDL2_TTF REQUIRED sdl2_ttf) # [cite: 1]
 
-add_executable(${PROJECT_NAME} main.c)
+# Find actual library files for SDL2
+set(SDL2_LIBRARY_FILES_TO_BUNDLE "") # [cite: 1]
+if(SDL2_FOUND AND SDL2_LIBRARIES AND SDL2_LIBRARY_DIRS) # [cite: 1]
+    foreach(LIB_NAME_STEM ${SDL2_LIBRARIES}) # [cite: 1]
+        if ("${LIB_NAME_STEM}" MATCHES "^-l(.+)") # [cite: 1]
+            set(CLEAN_LIB_NAME_STEM "${CMAKE_MATCH_1}") # [cite: 1]
+        else()
+            set(CLEAN_LIB_NAME_STEM "${LIB_NAME_STEM}") # [cite: 1]
+        endif()
 
-target_include_directories(${PROJECT_NAME} PRIVATE
-        ${SDL2_INCLUDE_DIRS}
-        ${SDL2_TTF_INCLUDE_DIRS}
-)
-
-target_link_directories(${PROJECT_NAME} PRIVATE
-        ${SDL2_LIBRARY_DIRS}
-        ${SDL2_TTF_LIBRARY_DIRS}
-)
-
-target_compile_options(${PROJECT_NAME} PRIVATE
-        ${SDL2_CFLAGS_OTHER}
-        ${SDL2_TTF_CFLAGS_OTHER}
-)
-
-# Важливо: тепер ми просто вказуємо назви бібліотек,
-# а CMake знайде їх завдяки pkg-config
-target_link_libraries(${PROJECT_NAME} PRIVATE SDL2 SDL2_ttf)
-
-
-if(APPLE)
-    set(MACOSX_BUNDLE_ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/appicon.icns") # Переконайтесь, що файл існує
-    set(MACOSX_BUNDLE_INFO_STRING "${PROJECT_NAME} Typing Application")
-    set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.yourcompany.${PROJECT_NAME}") # Замініть на ваш
-    # set(MACOSX_BUNDLE_LONG_VERSION_STRING "${PROJECT_VERSION_STRING}") # Якщо визначено версію проекту
-    # set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")   # Якщо визначено версію проекту
-
-    # Створення базового Info.plist, якщо він не існує
-    set(INFO_PLIST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist")
-    if(NOT EXISTS "${INFO_PLIST_PATH}")
-        file(WRITE "${CMAKE_BINARY_DIR}/Info.plist.in"
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-                "<plist version=\"1.0\">\n"
-                "<dict>\n"
-                "  <key>CFBundleDevelopmentRegion</key>\n"
-                "  <string>English</string>\n"
-                "  <key>CFBundleExecutable</key>\n"
-                "  <string>${PROJECT_NAME}</string>\n"
-                "  <key>CFBundleIconFile</key>\n"
-                "  <string>appicon.icns</string>\n" # Назва файлу іконки всередині Resources
-                "  <key>CFBundleIdentifier</key>\n"
-                "  <string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>\n"
-                "  <key>CFBundleInfoDictionaryVersion</key>\n"
-                "  <string>6.0</string>\n"
-                "  <key>CFBundleName</key>\n"
-                "  <string>${PROJECT_NAME}</string>\n"
-                "  <key>CFBundlePackageType</key>\n"
-                "  <string>APPL</string>\n"
-                "  <key>CFBundleShortVersionString</key>\n"
-                "  <string>1.0</string>\n" # Замініть на вашу версію
-                "  <key>CFBundleVersion</key>\n"
-                "  <string>1</string>\n"   # Замініть на вашу версію
-                "  <key>NSPrincipalClass</key>\n" # Потрібно для SDL
-                "  <string>NSApplication</string>\n"
-                "  <key>NSMainNibFile</key>\n"    # Потрібно для SDL, якщо не використовуєте Storyboard
-                "  <string></string>\n"
-                "  <key>LSMinimumSystemVersion</key>\n"
-                "  <string>10.9</string>" # Приклад мінімальної версії macOS
-                "</dict>\n"
-                "</plist>\n"
+        find_library(SDL2_SINGLE_LIB_FILE # [cite: 2]
+                NAMES ${CLEAN_LIB_NAME_STEM} # [cite: 2]
+                PATHS ${SDL2_LIBRARY_DIRS} # [cite: 2]
+                NO_DEFAULT_PATH # [cite: 2]
         )
-        configure_file("${CMAKE_BINARY_DIR}/Info.plist.in" "${INFO_PLIST_PATH}" @ONLY)
+        if(SDL2_SINGLE_LIB_FILE) # [cite: 2]
+            list(APPEND SDL2_LIBRARY_FILES_TO_BUNDLE "${SDL2_SINGLE_LIB_FILE}") # [cite: 2]
+            unset(SDL2_SINGLE_LIB_FILE CACHE) # [cite: 2]
+        else()
+            message(WARNING "Could not find library file for stem '${CLEAN_LIB_NAME_STEM}' in '${SDL2_LIBRARY_DIRS}' for bundling.") # [cite: 3]
+        endif()
+    endforeach()
+endif()
+list(REMOVE_DUPLICATES SDL2_LIBRARY_FILES_TO_BUNDLE) # [cite: 3]
+
+# Find actual library files for SDL2_ttf
+set(SDL2_TTF_LIBRARY_FILES_TO_BUNDLE "") # [cite: 3]
+if(SDL2_TTF_FOUND AND SDL2_TTF_LIBRARIES AND SDL2_TTF_LIBRARY_DIRS) # [cite: 3]
+    foreach(LIB_NAME_STEM ${SDL2_TTF_LIBRARIES}) # [cite: 3]
+        if ("${LIB_NAME_STEM}" MATCHES "^-l(.+)") # [cite: 3]
+            set(CLEAN_LIB_NAME_STEM "${CMAKE_MATCH_1}") # [cite: 3]
+        else()
+            set(CLEAN_LIB_NAME_STEM "${LIB_NAME_STEM}") # [cite: 4]
+        endif()
+
+        find_library(SDL2_TTF_SINGLE_LIB_FILE # [cite: 4]
+                NAMES ${CLEAN_LIB_NAME_STEM} # [cite: 4]
+                PATHS ${SDL2_TTF_LIBRARY_DIRS} # [cite: 4]
+                NO_DEFAULT_PATH # [cite: 4]
+        )
+        if(SDL2_TTF_SINGLE_LIB_FILE) # [cite: 4]
+            list(APPEND SDL2_TTF_LIBRARY_FILES_TO_BUNDLE "${SDL2_TTF_SINGLE_LIB_FILE}") # [cite: 5]
+            unset(SDL2_TTF_SINGLE_LIB_FILE CACHE) # [cite: 5]
+        else()
+            message(WARNING "Could not find library file for stem '${CLEAN_LIB_NAME_STEM}' in '${SDL2_TTF_LIBRARY_DIRS}' for bundling.") # [cite: 5]
+        endif()
+    endforeach()
+endif()
+list(REMOVE_DUPLICATES SDL2_TTF_LIBRARY_FILES_TO_BUNDLE) # [cite: 5]
+
+add_executable(${PROJECT_NAME} main.c) # [cite: 5]
+
+target_include_directories(${PROJECT_NAME} PRIVATE # [cite: 5]
+        ${SDL2_INCLUDE_DIRS} # [cite: 5]
+        ${SDL2_TTF_INCLUDE_DIRS} # [cite: 5]
+)
+
+target_link_directories(${PROJECT_NAME} PRIVATE # [cite: 5]
+        ${SDL2_LIBRARY_DIRS} # [cite: 5]
+        ${SDL2_TTF_LIBRARY_DIRS} # [cite: 5]
+)
+
+target_compile_options(${PROJECT_NAME} PRIVATE # [cite: 5]
+        ${SDL2_CFLAGS_OTHER} # [cite: 6]
+        ${SDL2_TTF_CFLAGS_OTHER} # [cite: 6]
+)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE SDL2 SDL2_ttf) # [cite: 6]
+
+
+if(APPLE) # [cite: 6]
+    set(MACOSX_BUNDLE_ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}appicon.icns") # [cite: 6]
+    set(MACOSX_BUNDLE_INFO_STRING "${PROJECT_NAME} Typing Application") # [cite: 6, 31]
+    set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.yourcompany.${PROJECT_NAME}") # [cite: 6, 31]
+
+    set(INFO_PLIST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist") # [cite: 6]
+    if(NOT EXISTS "${INFO_PLIST_PATH}") # [cite: 6, 7]
+        file(WRITE "${CMAKE_BINARY_DIR}/Info.plist.in" # [cite: 7]
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" # [cite: 7]
+                "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" # [cite: 7, 32]
+                "<plist version=\"1.0\">\n" # [cite: 7, 32]
+                "<dict>\n" # [cite: 7, 32]
+                "  <key>CFBundleDevelopmentRegion</key>\n" # [cite: 8, 32]
+                "  <string>English</string>\n" # [cite: 8, 32]
+                "  <key>CFBundleExecutable</key>\n" # [cite: 8, 32]
+                "  <string>\${PROJECT_NAME}</string>\n" # [cite: 8, 33]
+                "  <key>CFBundleIconFile</key>\n" # [cite: 8, 33]
+                "  <string>appicon.icns</string>\n" # [cite: 8, 33]
+                "  <key>CFBundleIdentifier</key>\n" # [cite: 9, 33]
+                "  <string>\${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>\n" # [cite: 9, 33]
+                "  <key>CFBundleInfoDictionaryVersion</key>\n" # [cite: 9, 34]
+                "  <string>6.0</string>\n" # [cite: 9, 34]
+                "  <key>CFBundleName</key>\n" # [cite: 9, 34]
+                "  <string>\${PROJECT_NAME}</string>\n" # [cite: 10, 34]
+                "  <key>CFBundlePackageType</key>\n" # [cite: 10, 34]
+                "  <string>APPL</string>\n" # [cite: 10, 34]
+                "  <key>CFBundleShortVersionString</key>\n" # [cite: 10, 35]
+                "  <string>1.0</string>\n" # [cite: 10, 35]
+                "  <key>CFBundleVersion</key>\n" # [cite: 11, 35]
+                "  <string>1</string>\n" # [cite: 11, 35]
+                "  <key>NSPrincipalClass</key>\n" # [cite: 11, 36]
+                "  <string>NSApplication</string>\n" # [cite: 11, 36]
+                "  <key>NSMainNibFile</key>\n" # [cite: 11, 36]
+                "  <string></string>\n" # [cite: 12, 36]
+                "  <key>LSMinimumSystemVersion</key>\n" # [cite: 12, 36]
+                "  <string>10.9</string>" # [cite: 12, 37]
+                "</dict>\n" # [cite: 12, 37]
+                "</plist>\n" # [cite: 12, 37]
+        )
+        configure_file("${CMAKE_BINARY_DIR}/Info.plist.in" "${INFO_PLIST_PATH}" @ONLY) # [cite: 13, 37]
     endif()
 
-    set_target_properties(${PROJECT_NAME} PROPERTIES
-            MACOSX_BUNDLE TRUE
-            MACOSX_BUNDLE_INFO_PLIST "${INFO_PLIST_PATH}"
+    set_target_properties(${PROJECT_NAME} PROPERTIES # [cite: 13]
+            MACOSX_BUNDLE TRUE # [cite: 13]
+            MACOSX_BUNDLE_INFO_PLIST "${INFO_PLIST_PATH}" # [cite: 13]
     )
 
-    # Копіювання ресурсів (text.txt та іконки) всередину бандла
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/text.txt")
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/text.txt"
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Resources/text.txt"
-                COMMENT "Copying text.txt to Bundle Resources"
+    # Copy resources to Bundle Resources [cite: 13, 38]
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/text.txt") # [cite: 13, 38]
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD # [cite: 13, 38]
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different # [cite: 13, 38]
+                "${CMAKE_CURRENT_SOURCE_DIR}/text.txt" # [cite: 14, 38]
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Resources/text.txt" # [cite: 14, 38]
+                COMMENT "Copying text.txt to Bundle Resources" # [cite: 14, 38]
         )
     endif()
-    if(EXISTS "${MACOSX_BUNDLE_ICON_FILE}")
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${MACOSX_BUNDLE_ICON_FILE}"
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Resources/appicon.icns" # Назва файлу іконки всередині бандла
-                COMMENT "Copying appicon.icns to Bundle Resources"
+    if(EXISTS "${MACOSX_BUNDLE_ICON_FILE}") # [cite: 14, 39]
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD # [cite: 14, 39]
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different # [cite: 14, 39]
+                "${MACOSX_BUNDLE_ICON_FILE}" # [cite: 15, 39]
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Resources/appicon.icns" # [cite: 15, 39]
+                COMMENT "Copying appicon.icns to Bundle Resources" # [cite: 15, 40]
         )
     endif()
 
-    # Шлях, куди будуть копіюватися бібліотеки всередині бандла
-    set(FRAMEWORKS_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Frameworks")
+    # Path to Frameworks directory inside the bundle [cite: 15, 40]
+    set(FRAMEWORKS_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Frameworks") # [cite: 15, 40]
 
-    # Список бібліотек для копіювання (приклад, потрібно адаптувати)
-    # Ви можете знайти точні шляхи, виконавши `otool -L TypingApp.app/Contents/MacOS/TypingApp`
-    # після звичайної збірки, щоб побачити, на які бібліотеки з Homebrew він посилається.
+    # --- Define list of libraries to bundle ---
+    set(OTHER_DEPENDENCIES_TO_BUNDLE
+            # Based on otool -L output for SDL2_ttf, HarfBuzz, FreeType
+            "/opt/homebrew/opt/freetype/lib/libfreetype.6.dylib"
+            "/opt/homebrew/opt/harfbuzz/lib/libharfbuzz.0.dylib"
+            "/opt/homebrew/opt/glib/lib/libglib-2.0.0.dylib"
+            "/opt/homebrew/opt/graphite2/lib/libgraphite2.3.dylib"
+            "/opt/homebrew/opt/libpng/lib/libpng16.16.dylib"
+
+            # USER ACTION REQUIRED: Check dependencies of libglib-2.0.0.dylib
+            # Run this command in your terminal:
+            # otool -L /opt/homebrew/opt/glib/lib/libglib-2.0.0.dylib
+            # Add any Homebrew-provided libraries (e.g., pcre2, gettext/libintl) it lists.
+            # Ensure they are from /opt/homebrew/... and not system paths.
+            # Example (uncomment and adjust if needed after running otool):
+            # "/opt/homebrew/lib/libpcre2-8.0.dylib"       #<-- Adjust actual path/name
+            # "/opt/homebrew/opt/gettext/lib/libintl.8.dylib" #<-- Adjust actual path/name
+    )
+
     set(LIBS_TO_BUNDLE
-            "${SDL2_LIBRARIES}" # Це зазвичай повний шлях до libSDL2.dylib
-            "${SDL2_TTF_LIBRARIES}" # Це зазвичай повний шлях до libSDL2_ttf.dylib
-            # Додайте сюди шляхи до інших залежностей SDL2_ttf, якщо потрібно:
-            # Наприклад, для arm64 Mac з Homebrew:
-            "${HOMEBREW_PREFIX}/lib/libfreetype.dylib"
-            "${HOMEBREW_PREFIX}/lib/libpng16.dylib" # Або libpng.dylib
-            "${HOMEBREW_PREFIX}/lib/libbrotlidec.dylib"
-            "${HOMEBREW_PREFIX}/lib/libbrotlicommon.dylib"
-            "${HOMEBREW_PREFIX}/lib/libharfbuzz.dylib"
-            # Залежності harfbuzz:
-            "${HOMEBREW_PREFIX}/lib/libglib-2.0.0.dylib"
-            "${HOMEBREW_PREFIX}/lib/libpcre2-8.0.dylib" # Або схожий
-            "${HOMEBREW_PREFIX}/opt/gettext/lib/libintl.8.dylib" # Або схожий
-            "${HOMEBREW_PREFIX}/lib/libgraphite2.3.dylib"
-            # Перевірте `otool -L /opt/homebrew/lib/libSDL2_ttf.dylib` та `otool -L /opt/homebrew/lib/libharfbuzz.dylib`
-            # для повного списку залежностей, які не є системними.
+            ${SDL2_LIBRARY_FILES_TO_BUNDLE}
+            ${SDL2_TTF_LIBRARY_FILES_TO_BUNDLE}
+            ${OTHER_DEPENDENCIES_TO_BUNDLE}
     )
-
-    # Видаляємо дублікати та порожні елементи зі списку
-    list(REMOVE_DUPLICATES LIBS_TO_BUNDLE)
-    list(FILTER LIBS_TO_BUNDLE EXCLUDE REGEX "^$")
+    list(REMOVE_DUPLICATES LIBS_TO_BUNDLE) # [cite: 19]
+    list(FILTER LIBS_TO_BUNDLE EXCLUDE REGEX "^$") # Remove empty elements if any [cite: 19]
 
 
-    foreach(LIB_PATH ${LIBS_TO_BUNDLE})
-        if(EXISTS "${LIB_PATH}")
-            get_filename_component(LIB_NAME ${LIB_PATH} NAME)
-            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${LIB_PATH}"
-                    "${FRAMEWORKS_DIR}/${LIB_NAME}"
-                    COMMENT "Copying ${LIB_NAME} to Bundle Frameworks"
+    foreach(LIB_PATH ${LIBS_TO_BUNDLE}) # [cite: 19]
+        if(EXISTS "${LIB_PATH}") # [cite: 19]
+            get_filename_component(LIB_NAME ${LIB_PATH} NAME) # [cite: 19]
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD # [cite: 19]
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different # [cite: 20]
+                    "${LIB_PATH}" # [cite: 20]
+                    "${FRAMEWORKS_DIR}/${LIB_NAME}" # [cite: 20]
+                    COMMENT "Copying ${LIB_NAME} to Bundle Frameworks" # [cite: 20]
             )
-            # Змінюємо install_name для скопійованої бібліотеки, щоб вона посилалася на себе через @rpath
-            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                    COMMAND install_name_tool -id "@rpath/${LIB_NAME}"
-                    "${FRAMEWORKS_DIR}/${LIB_NAME}"
-                    COMMENT "Fixing id for ${LIB_NAME}"
+            # Fix id for the copied library [cite: 20]
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD # [cite: 21]
+                    COMMAND install_name_tool -id "@rpath/${LIB_NAME}" # [cite: 21]
+                    "${FRAMEWORKS_DIR}/${LIB_NAME}" # [cite: 21]
+                    COMMENT "Fixing id for ${LIB_NAME}" # [cite: 21]
             )
-            # Змінюємо шлях завантаження для цієї бібліотеки у виконуваному файлі
-            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                    COMMAND install_name_tool -change "${LIB_PATH}" # Старий абсолютний шлях
-                    "@rpath/${LIB_NAME}" # Новий шлях відносно @rpath
-                    "$<TARGET_FILE:${PROJECT_NAME}>" # Сам виконуваний файл
-                    COMMENT "Fixing library path for ${LIB_NAME} in executable"
+            # Fix library path in the executable [cite: 22]
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD # [cite: 22]
+                    COMMAND install_name_tool -change "${LIB_PATH}" # [cite: 22]
+                    "@rpath/${LIB_NAME}" # [cite: 22]
+                    "$<TARGET_FILE:${PROJECT_NAME}>" # [cite: 23]
+                    COMMENT "Fixing library path for ${LIB_NAME} in executable" # [cite: 23]
             )
 
-            # Потрібно також виправити залежності всередині самих бібліотек
-            # (наприклад, libSDL2_ttf.dylib залежить від libfreetype.dylib)
-            # Цей крок складніший і може вимагати рекурсивного обходу залежностей
-            # або використання інструменту типу macdeployqt (але він для Qt) або ручного скрипту.
-            # Для простоти, почнемо з цього. Якщо будуть проблеми, цей крок потрібно буде доопрацювати.
-            # Наприклад, для кожної скопійованої бібліотеки пройтися по її залежностям (otool -L)
-            # і виправити їх на @rpath/...
-            #
-            # Приклад для однієї залежності (якщо libSDL2_ttf.dylib залежить від libfreetype.6.dylib):
-            # find_program(OTOOL_EXECUTABLE otool)
-            # if(OTOOL_EXECUTABLE)
-            #     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            #         COMMAND bash -c "for dep in $(${OTOOL_EXECUTABLE} -L ${FRAMEWORKS_DIR}/${LIB_NAME} | grep '${HOMEBREW_PREFIX}' | awk '{print $1}'); do install_name_tool -change \"$${dep}\" \"@rpath/$$(basename \"$${dep}\")\" ${FRAMEWORKS_DIR}/${LIB_NAME}; done"
-            #         COMMENT "Fixing internal dependencies for ${LIB_NAME}"
-            #     )
-            # endif()
+            # Fix internal dependencies within the copied library (EXPERIMENTAL)
+            # This makes the bundled libraries look for their *own* dependencies (that are also bundled)
+            # in @rpath (i.e., within the Frameworks directory).
+            find_program(OTOOL_EXECUTABLE otool)
+            find_program(BASH_EXECUTABLE bash)
+
+            if(OTOOL_EXECUTABLE AND BASH_EXECUTABLE)
+                # Prepare list of basenames of all bundled libraries for the script
+                set(ALL_BUNDLED_LIB_BASENAMES "")
+                foreach(b_lib_path_for_script ${LIBS_TO_BUNDLE}) # Use the full LIBS_TO_BUNDLE list
+                    get_filename_component(b_lib_name_for_script ${b_lib_path_for_script} NAME)
+                    list(APPEND ALL_BUNDLED_LIB_BASENAMES "${b_lib_name_for_script}")
+                endforeach()
+                # No need to convert to space-separated string here; list will be passed as separate args.
+
+                # Path to the script template
+                set(FIX_DEPS_SCRIPT_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/fix_inner_deps.sh.in")
+                # Path for the configured script (specific to the library being processed if needed, or a general one)
+                # For simplicity, we can use one configured script if its content doesn't change per LIB_NAME,
+                # but the arguments to it will change.
+                # Here, the script itself is generic, so one configure_file is enough.
+                set(CONFIGURED_FIX_DEPS_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/fix_inner_deps.sh")
+                configure_file("${FIX_DEPS_SCRIPT_TEMPLATE}" "${CONFIGURED_FIX_DEPS_SCRIPT}" COPYONLY) # COPYONLY if no @VAR@ subs needed in script
+                # OR remove COPYONLY if you add @VAR@ subs
+
+                find_program(CHMOD_EXECUTABLE chmod)
+                if(CHMOD_EXECUTABLE)
+                    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                            COMMAND "${CHMOD_EXECUTABLE}" +x "${CONFIGURED_FIX_DEPS_SCRIPT}"
+                            COMMENT "Make fix_inner_deps.sh executable"
+                    )
+                else()
+                    message(WARNING "chmod executable not found. Cannot make ${CONFIGURED_FIX_DEPS_SCRIPT} executable.")
+                endif()
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                        COMMAND "${BASH_EXECUTABLE}"
+                        "${CONFIGURED_FIX_DEPS_SCRIPT}"
+                        "${FRAMEWORKS_DIR}"  # Arg 1: $<TARGET_FILE_DIR:${PROJECT_NAME}>/../Frameworks (GenEx)
+                        "${LIB_NAME}"        # Arg 2: Current library being processed
+                        "${OTOOL_EXECUTABLE}" # Arg 3: Path to otool
+                        "${HOMEBREW_PREFIX}"  # Arg 4: /opt/homebrew
+                        ${ALL_BUNDLED_LIB_BASENAMES} # Args 5...: List of all bundled lib basenames
+                        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+                        COMMENT "Fixing internal dependencies for ${LIB_NAME} using script"
+                        VERBATIM # Ensures arguments are passed correctly, especially the list
+                )
+            else()
+                message(WARNING "otool or bash not found. Cannot fix internal library dependencies automatically for ${LIB_NAME}. Bundle may not be portable.")
+            endif()
 
         else()
-            message(WARNING "Library to bundle not found: ${LIB_PATH}")
+            message(WARNING "Library to bundle not found: ${LIB_PATH}") # [cite: 28]
         endif()
     endforeach()
 
-    # Встановлюємо rpath для виконуваного файлу, щоб він шукав бібліотеки у Frameworks
-    set_target_properties(${PROJECT_NAME} PROPERTIES
-            BUILD_WITH_INSTALL_RPATH TRUE
-            INSTALL_RPATH "@executable_path/../Frameworks"
+    # Set rpath for the executable to search in Frameworks directory [cite: 28]
+    set_target_properties(${PROJECT_NAME} PROPERTIES # [cite: 28]
+            BUILD_WITH_INSTALL_RPATH TRUE # [cite: 28]
+            INSTALL_RPATH "@executable_path/../Frameworks" # [cite: 28]
     )
 endif()
 
-# Команда встановлення (залишається, але тепер встановлює бандл)
-install(TARGETS ${PROJECT_NAME}
-        BUNDLE DESTINATION "/Applications" # Встановлює TypingApp.app у /Applications
-        # Для не-Apple систем можна додати звичайне встановлення:
-        # RUNTIME DESTINATION bin COMPONENT Runtime # Якщо це не APPLE
+install(TARGETS ${PROJECT_NAME} # [cite: 29]
+        BUNDLE DESTINATION "/Applications" # [cite: 29]
 )

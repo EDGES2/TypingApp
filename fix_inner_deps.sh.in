@@ -1,0 +1,40 @@
+#!/bin/bash
+# Args: 1=FRAMEWORKS_DIR, 2=LIB_NAME_TO_PROCESS, 3=OTOOL_EXECUTABLE, 4=HOMEBREW_PREFIX, 5...=LIBS_IN_BUNDLE_BASENAMES_ARRAY
+set -euo pipefail # Exit on error, treat unset variables as an error, and pipefail
+
+ARG_FRAMEWORKS_DIR="$1"
+ARG_LIB_NAME_TO_PROCESS="$2"
+ARG_OTOOL_EXECUTABLE="$3"
+ARG_HOMEBREW_PREFIX="$4"
+shift 4 # Remove the first four processed arguments
+# Remaining arguments are the basenames of bundled libraries
+BUNDLED_LIBS_BASENAMES_ARRAY=("$@")
+
+echo "Processing internal dependencies for ${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
+echo "Bundled library basenames considered: ${BUNDLED_LIBS_BASENAMES_ARRAY[*]}"
+
+# In this script, awk '{print $1}' is correct as it's directly interpreted by bash/awk
+# and not subject to multiple layers of CMake/Ninja string processing.
+for dep_path in $("${ARG_OTOOL_EXECUTABLE}" -L "${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}" | grep -E "^\\s*${ARG_HOMEBREW_PREFIX}" | awk '{print $1}'); do
+    dep_name=$(basename "${dep_path}")
+    is_in_bundle=0
+    actual_bundled_dep_name=""
+
+    for bundled_lib_name_iter in "${BUNDLED_LIBS_BASENAMES_ARRAY[@]}"; do
+        # Check if dep_name matches any of the known basenames of bundled libraries
+        if [[ "${dep_name}" == "${bundled_lib_name_iter}" ]]; then
+            is_in_bundle=1
+            actual_bundled_dep_name="${bundled_lib_name_iter}"
+            break
+        fi
+    done
+
+    if [[ "${is_in_bundle}" -eq 1 ]]; then
+        echo "  Fixing internal ref ${dep_path} -> @rpath/${actual_bundled_dep_name} in ${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
+        install_name_tool -change "${dep_path}" "@rpath/${actual_bundled_dep_name}" "${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
+    else
+        echo "  Skipping internal ref ${dep_path} (basename '${dep_name}' not in bundled list) for ${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
+    fi
+done
+echo "Finished processing internal dependencies for ${ARG_FRAMEWORKS_DIR}/${ARG_LIB_NAME_TO_PROCESS}"
+echo "-----------------------------------------------------"
