@@ -1,3 +1,5 @@
+#sudo cmake --build /Users/kirilltokarev/Programming/CLion/Me/TypingApp/cmake-build-debug --target install
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version to run on")
 cmake_minimum_required(VERSION 3.20) # [cite: 1]
 project(TypingApp C) # [cite: 1]
 
