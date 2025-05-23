@@ -2,7 +2,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <stdio.h>
-#include <stdlib.h>
+#include <stdlib.h> // Потрібно для system()
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h> // For iscntrl, isspace
@@ -53,9 +53,6 @@ typedef struct {
     int glyph_h_cache[N_COLORS][128];
     int space_advance_width;
     int tab_width_pixels;
-    // SDL_Texture *paused_texture; // REMOVED: No longer needed for centered message
-    // int paused_texture_w;        // REMOVED
-    // int paused_texture_h;        // REMOVED
 } AppContext;
 
 typedef struct {
@@ -81,8 +78,9 @@ static int y_offset_due_to_prediction_for_current_idx = 0;
 // --- MODIFICATION: Pause State Variables ---
 static bool is_paused = false;
 static Uint32 time_at_pause_ms = 0;
-static bool lcmd_held = false;
-static bool rcmd_held = false;
+// MODIFICATION: Renamed for platform-dependent shortcuts
+static bool l_modifier_held = false;
+static bool r_modifier_held = false;
 // --- END MODIFICATION ---
 
 // --- MODIFICATION: Stats File Path ---
@@ -310,17 +308,6 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
     if (appCtx->space_advance_width <= 0) appCtx->space_advance_width = FONT_SIZE / 3;
     appCtx->tab_width_pixels = (appCtx->space_advance_width > 0) ? (TAB_SIZE_IN_SPACES * appCtx->space_advance_width) : (TAB_SIZE_IN_SPACES * (FONT_SIZE / 3));
 
-    // REMOVED: Centered "PAUSED" texture creation is no longer needed
-    // SDL_Surface *paused_surf = TTF_RenderText_Blended(appCtx->font, "PAUSED", appCtx->palette[COL_CURSOR]);
-    // if (paused_surf) {
-    //     appCtx->paused_texture = SDL_CreateTextureFromSurface(appCtx->ren, paused_surf);
-    //     appCtx->paused_texture_w = paused_surf->w;
-    //     appCtx->paused_texture_h = paused_surf->h;
-    //     SDL_FreeSurface(paused_surf);
-    // } else {
-    //     appCtx->paused_texture = NULL;
-    //     fprintf(stderr, "Warning: Failed to create PAUSED texture: %s\n", TTF_GetError());
-    // }
     return true;
 }
 
@@ -334,11 +321,6 @@ void CleanupApp(AppContext *appCtx) {
             }
         }
     }
-    // REMOVED: Destruction of centered "PAUSED" texture
-    // if (appCtx->paused_texture) {
-    //     SDL_DestroyTexture(appCtx->paused_texture);
-    //     appCtx->paused_texture = NULL;
-    // }
     if (appCtx->font) { TTF_CloseFont(appCtx->font); appCtx->font = NULL; }
     if (appCtx->ren) { SDL_DestroyRenderer(appCtx->ren); appCtx->ren = NULL; }
     if (appCtx->win) { SDL_DestroyWindow(appCtx->win); appCtx->win = NULL; }
@@ -370,7 +352,6 @@ char* PreprocessText(const char* raw_text_buffer, size_t raw_text_len, size_t* o
     const char* p_read = raw_text_buffer;
     const char* p_read_end = raw_text_buffer + raw_text_len;
 
-    // Pass 1: Character replacements and initial newline/CR handling
     while (p_read < p_read_end) {
     if (temp_w_idx + 4 >= temp_buffer_capacity) {
         temp_buffer_capacity = temp_buffer_capacity * 2 + 4;
@@ -572,17 +553,22 @@ void HandleAppEvents(SDL_Event *event, size_t *current_input_byte_idx,
         }
         // --- END MODIFICATION ---
 
-        // --- MODIFICATION: Pause Key Handling (LCMD+RCMD) ---
+        // --- MODIFICATION: Pause Key Handling (Platform-dependent) ---
         if (event->type == SDL_KEYDOWN) {
             if (!event->key.repeat) {
-                bool prev_lcmd_held = lcmd_held;
-                bool prev_rcmd_held = rcmd_held;
+                bool prev_l_modifier_held = l_modifier_held;
+                bool prev_r_modifier_held = r_modifier_held;
 
-                if (event->key.keysym.sym == SDLK_LGUI) lcmd_held = true;
-                else if (event->key.keysym.sym == SDLK_RGUI) rcmd_held = true;
+                #ifdef _WIN32
+                    if (event->key.keysym.sym == SDLK_LALT) l_modifier_held = true;
+                    else if (event->key.keysym.sym == SDLK_RALT) r_modifier_held = true;
+                #else // macOS and other Unix-like (default to Command/Super keys)
+                    if (event->key.keysym.sym == SDLK_LGUI) l_modifier_held = true;
+                    else if (event->key.keysym.sym == SDLK_RGUI) r_modifier_held = true;
+                #endif
 
 
-                if (lcmd_held && rcmd_held && !(prev_lcmd_held && prev_rcmd_held)) {
+                if (l_modifier_held && r_modifier_held && !(prev_l_modifier_held && prev_r_modifier_held)) {
                     is_paused = !is_paused;
                     if (is_paused) {
                         if (*typing_started) {
@@ -612,10 +598,47 @@ void HandleAppEvents(SDL_Event *event, size_t *current_input_byte_idx,
                 }
             }
         } else if (event->type == SDL_KEYUP) {
-            if (event->key.keysym.sym == SDLK_LGUI) lcmd_held = false;
-            else if (event->key.keysym.sym == SDLK_RGUI) rcmd_held = false;
+            #ifdef _WIN32
+                if (event->key.keysym.sym == SDLK_LALT) l_modifier_held = false;
+                else if (event->key.keysym.sym == SDLK_RALT) r_modifier_held = false;
+            #else
+                if (event->key.keysym.sym == SDLK_LGUI) l_modifier_held = false;
+                else if (event->key.keysym.sym == SDLK_RGUI) r_modifier_held = false;
+            #endif
         }
         // --- END MODIFICATION ---
+
+        // --- MODIFICATION: Handle 's' key to open stats file when paused ---
+        if (is_paused && event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_s && !event->key.repeat) {
+            if (full_path_to_stats_file[0] != '\0') {
+                char command[1100]; // Buffer for system command
+                #ifdef _WIN32
+                    // Using "start" with an empty title "" to handle paths with spaces correctly.
+                    snprintf(command, sizeof(command), "start \"\" \"%s\"", full_path_to_stats_file);
+                #elif __APPLE__
+                    snprintf(command, sizeof(command), "open \"%s\"", full_path_to_stats_file);
+                #elif __linux__
+                    snprintf(command, sizeof(command), "xdg-open \"%s\"", full_path_to_stats_file);
+                #else
+                    if (log_file) fprintf(log_file, "INFO: 's' pressed to open stats, but no system command defined for this OS.\n");
+                    command[0] = '\0'; // No command to run
+                #endif
+
+                if (command[0] != '\0') {
+                    if (log_file) fprintf(log_file, "INFO: Attempting to open stats file with command: %s\n", command);
+                    int ret = system(command);
+                    if (ret != 0) {
+                        if (log_file) fprintf(log_file, "WARN: System command '%s' to open stats file returned %d.\n", command, ret);
+                    }
+                }
+            } else {
+                if (log_file) fprintf(log_file, "WARN: 's' pressed, but stats file path is not set.\n");
+            }
+            if (log_file) fflush(log_file);
+            continue; // Event handled, skip further processing for this 's' key event
+        }
+        // --- END MODIFICATION ---
+
 
         // --- MODIFICATION: If paused, skip other game inputs (Backspace, TextInput) for this event ---
         if (is_paused) {
@@ -627,9 +650,6 @@ void HandleAppEvents(SDL_Event *event, size_t *current_input_byte_idx,
         // --- Process other game-related SDL_KEYDOWN events (Backspace) ---
         // This block is only reached if NOT paused.
         if (event->type == SDL_KEYDOWN) {
-            // Note: SDLK_ESCAPE is already handled.
-            // LCMD/RGUI keydown events were processed above for pause flags,
-            // but they don't have other game actions here (unless a specific action was intended for single CMD press).
             if (event->key.keysym.sym == SDLK_BACKSPACE && *current_input_byte_idx > 0) {
                 const char *start_of_buffer_bk = input_buffer;
                 const char *current_end_of_input_bk = input_buffer + *current_input_byte_idx;
@@ -714,10 +734,8 @@ void RenderAppTimer(AppContext *appCtx, Uint32 elapsed_ms_param, int *out_timer_
     Uint32 elapsed_s;
     char timer_buf[32];
 
-    // --- MODIFICATION: Adjust timer display when paused ---
     if (is_paused && typing_started_main) {
-        // elapsed_s = (time_at_pause_ms - start_time_main) / 1000; // This line was the error source, ensure it's fixed/commented
-        elapsed_s = elapsed_ms_param / 1000; // Correct: use passed parameter
+        elapsed_s = elapsed_ms_param / 1000;
         int m = (int)(elapsed_s / 60);
         int s = (int)(elapsed_s % 60);
         snprintf(timer_buf, sizeof(timer_buf), "%02d:%02d (Paused)", m, s);
@@ -730,7 +748,6 @@ void RenderAppTimer(AppContext *appCtx, Uint32 elapsed_ms_param, int *out_timer_
         int s = (int)(elapsed_s % 60);
         snprintf(timer_buf, sizeof(timer_buf), "%02d:%02d", m, s);
     }
-    // --- END MODIFICATION ---
 
 
     int current_timer_h_val = 0;
@@ -828,9 +845,7 @@ void RenderLiveStats(AppContext *appCtx, Uint32 current_ticks_param, Uint32 star
     }
 
     char wpm_buf[32], acc_buf[32], words_buf[32];
-    // --- MODIFICATION: Removed "(Paused)" from WPM display ---
     snprintf(wpm_buf, sizeof(wpm_buf), "WPM: %.0f", live_wpm);
-    // --- END MODIFICATION ---
     snprintf(acc_buf, sizeof(acc_buf), "Acc: %.0f%%", live_accuracy);
     snprintf(words_buf, sizeof(words_buf), "Words: %d", live_typed_words_count);
 
