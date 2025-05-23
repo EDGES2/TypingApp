@@ -31,7 +31,7 @@
 
 // Logging switch: 1 to enable regular game event logs, 0 to disable them.
 // Critical errors to stderr and app start/finish to log_file (if open) are always active.
-#define ENABLE_GAME_LOGS 1 // User requested to disable detailed logs by default
+#define ENABLE_GAME_LOGS 0 // User requested to disable detailed logs by default
 
 // Color palette indices
 enum { COL_BG, COL_TEXT, COL_CORRECT, COL_INCORRECT, COL_CURSOR, N_COLORS };
