@@ -4,3 +4,4 @@ Applications --> TypingApp.app --> right click --> show contents --> resources -
 MacOS:
 "Left CMD" + "Right CMD" -- to pause
 "s" -- to show stats(only on pause)
+"t" -- to open text.txt file(only on pause)
