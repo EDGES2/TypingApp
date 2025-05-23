@@ -847,37 +847,45 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
     if (!appCtx || !text_to_type || !out_cursor_abs_y || !out_cursor_exact_x) return;
 
     int calculated_cursor_y = 0;
-    int calculated_cursor_x = TEXT_AREA_X;
-    int current_pen_x = TEXT_AREA_X;
-    int current_line_abs_y = 0;
+    int calculated_cursor_x = TEXT_AREA_X; // Початкова позиція X для розрахунку курсора
+    int current_pen_x = TEXT_AREA_X;       // Поточна позиція X пера при обході тексту
+    int current_line_abs_y = 0;          // Поточна абсолютна Y позиція (0 для першого рядка)
 
     const char *p_iter = text_to_type;
     const char *p_end = text_to_type + final_text_len;
-    size_t processed_bytes_total = 0;
+    size_t processed_bytes_total = 0; // Кількість оброблених байт тексту
     bool cursor_position_found = false;
 
     if (current_input_byte_idx == 0) {
         *out_cursor_abs_y = 0;
         *out_cursor_exact_x = TEXT_AREA_X;
         #if ENABLE_GAME_LOGS
+        // Log для нульового індексу залишається, якщо потрібен
         if (log_file) fprintf(log_file, "[CalculateCursorLayout] OUTPUT (idx 0): final_abs_y: %d, final_exact_x: %d\n", *out_cursor_abs_y, *out_cursor_exact_x);
         #endif
         return;
     }
 
-    //int loop_iteration_count = 0; // No longer needed with ENABLE_DETAILED_LOGGING removed
-
     while(p_iter < p_end && !cursor_position_found) {
-        //loop_iteration_count++; // Removed
         size_t bytes_at_block_start = processed_bytes_total;
         int pen_x_at_block_start = current_pen_x;
         int line_y_at_block_start = current_line_abs_y;
 
+        // Зберігаємо p_iter перед викликом get_next_text_block_func, щоб знати, де починався наступний блок для "заглядання вперед"
+        const char* p_iter_before_current_block = p_iter;
         TextBlockInfo current_block = get_next_text_block_func(appCtx, &p_iter, p_end, pen_x_at_block_start);
 
-        // Detailed block logging removed.
-
-        if (current_block.num_bytes == 0) { if(p_iter < p_end) p_iter++; else break; continue; }
+        if (current_block.num_bytes == 0) {
+            if(p_iter < p_end && p_iter == p_iter_before_current_block) { // Якщо get_next_text_block_func не змістив p_iter
+                p_iter++; // Примусове зміщення, щоб уникнути зациклення
+            }
+            if (p_iter > p_iter_before_current_block) {
+                 processed_bytes_total += (size_t)(p_iter - p_iter_before_current_block);
+            } else if (p_iter_before_current_block < p_end) { // Якщо p_iter не змінився і не кінець
+                 processed_bytes_total++; // Припускаємо, що хоча б один байт "пропущено"
+            }
+            continue;
+        }
 
         int y_for_chars_in_this_block = line_y_at_block_start;
         int x_for_chars_in_this_block = pen_x_at_block_start;
@@ -886,52 +894,99 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
             current_line_abs_y = line_y_at_block_start + appCtx->line_h;
             current_pen_x = TEXT_AREA_X;
         } else {
-            if (pen_x_at_block_start + current_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W &&
-                pen_x_at_block_start != TEXT_AREA_X &&
-                (current_block.is_word || current_block.is_tab) ) {
+            // --- MODIFICATION START: Більш узгоджена логіка перенесення блоку ---
+            bool must_wrap_this_block_for_calc = false;
+            if (pen_x_at_block_start != TEXT_AREA_X) { // Переносимо, тільки якщо це не перший елемент на рядку
+                if (current_block.is_word || current_block.is_tab) { // Для слів та табів
+                    // Умова 1: Сам блок не вміщується
+                    if (pen_x_at_block_start + current_block.pixel_width > TEXT_AREA_X + TEXT_AREA_W) {
+                        must_wrap_this_block_for_calc = true;
+                    } else {
+                        // Умова 2 (для слів): Блок вміщується, але перевіримо, чи не призведе наступний пробіл до переповнення
+                        // Це копіює логіку з RenderTextContent
+                        if (current_block.is_word) { // Ця додаткова перевірка лише для слів
+                            const char *p_peek_iter_calc = p_iter; // p_iter вже вказує на початок НАСТУПНОГО блоку
+                            if (p_peek_iter_calc < p_end) {
+                                const char *temp_peek_ptr_for_get_next_calc = p_peek_iter_calc; // Копія для get_next_text_block_func
+                                int pen_x_after_current_block_calc = pen_x_at_block_start + current_block.pixel_width;
+
+                                // Важливо: get_next_text_block_func змінює вказівник, тому передаємо копію
+                                TextBlockInfo next_block_peek_calc = get_next_text_block_func(appCtx, &temp_peek_ptr_for_get_next_calc, p_end, pen_x_after_current_block_calc);
+
+                                if (next_block_peek_calc.num_bytes > 0 && !next_block_peek_calc.is_word && !next_block_peek_calc.is_newline && !next_block_peek_calc.is_tab) {
+                                    // Наступний блок - це послідовність пробілів
+                                    Sint32 cp_space_peek_calc = 0;
+                                    int first_space_char_width_calc = 0;
+                                    const char* temp_s_ptr_peek_calc = next_block_peek_calc.start_ptr;
+                                    const char* temp_s_ptr_peek_end_calc = next_block_peek_calc.start_ptr + next_block_peek_calc.num_bytes;
+
+                                    if (temp_s_ptr_peek_calc < temp_s_ptr_peek_end_calc) {
+                                       cp_space_peek_calc = decode_utf8(&temp_s_ptr_peek_calc, temp_s_ptr_peek_end_calc);
+                                    }
+
+                                    if (cp_space_peek_calc == ' ') { // Якщо перший символ наступного блоку - пробіл
+                                        first_space_char_width_calc = get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp_space_peek_calc, appCtx->space_advance_width, NULL, NULL);
+                                        // Якщо поточний блок + цей перший пробіл наступного блоку не вміщуються
+                                        if (first_space_char_width_calc > 0 && (pen_x_after_current_block_calc + first_space_char_width_calc > TEXT_AREA_X + TEXT_AREA_W)) {
+                                            must_wrap_this_block_for_calc = true; // Тоді поточний блок треба перенести
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (must_wrap_this_block_for_calc) {
                 y_for_chars_in_this_block = line_y_at_block_start + appCtx->line_h;
                 x_for_chars_in_this_block = TEXT_AREA_X;
             }
+            // --- MODIFICATION END ---
+
             current_pen_x = x_for_chars_in_this_block + current_block.pixel_width;
             current_line_abs_y = y_for_chars_in_this_block;
         }
 
-        // Detailed wrap/newline logging removed.
+        // Логіка пошуку позиції курсора всередині блоку або в кінці блоку
+        if (!cursor_position_found &&
+            current_input_byte_idx >= bytes_at_block_start && // Курсор знаходиться в цьому блоці або відразу після нього
+            current_input_byte_idx < bytes_at_block_start + current_block.num_bytes) { // Курсор всередині поточного блоку
 
-        if (!cursor_position_found && current_block.start_ptr &&
-            current_input_byte_idx >= bytes_at_block_start &&
-            current_input_byte_idx < bytes_at_block_start + current_block.num_bytes) {
-
-            calculated_cursor_y = y_for_chars_in_this_block;
-            calculated_cursor_x = x_for_chars_in_this_block;
+            calculated_cursor_y = y_for_chars_in_this_block; // Початкова Y для символів цього блоку
+            calculated_cursor_x = x_for_chars_in_this_block; // Початкова X для символів цього блоку
 
             const char* p_char_iter_in_block = current_block.start_ptr;
+            // target_cursor_ptr_global вказує на байт, *після* якого має бути курсор
             const char* target_cursor_ptr_global = text_to_type + current_input_byte_idx;
 
+            while (p_char_iter_in_block < target_cursor_ptr_global && p_char_iter_in_block < current_block.start_ptr + current_block.num_bytes) {
+                const char* temp_char_start_in_loop = p_char_iter_in_block;
+                Sint32 cp_in_block = decode_utf8(&p_char_iter_in_block, p_end); // p_end тут може бути current_block.start_ptr + current_block.num_bytes
 
-            while (p_char_iter_in_block < target_cursor_ptr_global) {
-                const char* temp_char_start = p_char_iter_in_block;
-                Sint32 cp_in_block = decode_utf8(&p_char_iter_in_block, p_end);
+                if (cp_in_block <= 0 ) { // Або помилка, або кінець тексту в блоці
+                     if (p_char_iter_in_block <= temp_char_start_in_loop) p_char_iter_in_block = temp_char_start_in_loop + 1; // Уникнути зациклення
+                     break; // Вихід з внутрішнього циклу
+                }
+                // Якщо decode_utf8 просунув p_char_iter_in_block за межі target_cursor_ptr_global,
+                // це означає, що target_cursor_ptr_global був всередині багатобайтового символу. Курсор має бути перед ним.
+                if (p_char_iter_in_block > target_cursor_ptr_global && target_cursor_ptr_global > temp_char_start_in_loop) {
+                     p_char_iter_in_block = temp_char_start_in_loop; // Повертаємо вказівник на початок цього символу
+                    break; // Курсор перед цим символом
+                }
 
-                if (cp_in_block <= 0) {
-                    if (p_char_iter_in_block <= temp_char_start) p_char_iter_in_block = temp_char_start +1;
-                    break;
-                }
-                if (p_char_iter_in_block > target_cursor_ptr_global && target_cursor_ptr_global > temp_char_start) {
-                     p_char_iter_in_block = temp_char_start;
-                    break;
-                }
 
                 int adv_char_in_block = 0;
-                if (cp_in_block == '\t') {
-                    int offset_in_line = calculated_cursor_x - TEXT_AREA_X;
-                    adv_char_in_block = appCtx->tab_width_pixels - (offset_in_line % appCtx->tab_width_pixels);
-                    if (adv_char_in_block == 0 && offset_in_line >=0) adv_char_in_block = appCtx->tab_width_pixels;
+                if (cp_in_block == '\t') { // Спеціальна обробка для табуляції всередині блоку (малоймовірно, якщо get_next_text_block_func їх відокремлює)
+                    int offset_in_line_inner = calculated_cursor_x - TEXT_AREA_X;
+                    adv_char_in_block = appCtx->tab_width_pixels - (offset_in_line_inner % appCtx->tab_width_pixels);
+                    if (adv_char_in_block == 0 && offset_in_line_inner >=0) adv_char_in_block = appCtx->tab_width_pixels;
                     if (adv_char_in_block <=0) adv_char_in_block = appCtx->tab_width_pixels;
                 } else {
                     adv_char_in_block = get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp_in_block, appCtx->space_advance_width, NULL, NULL);
                 }
 
+                // Внутрішнє перенесення для дуже довгих слів, що не вмістились навіть після блочного переносу
                 if (calculated_cursor_x + adv_char_in_block > TEXT_AREA_X + TEXT_AREA_W && calculated_cursor_x != TEXT_AREA_X ) {
                     calculated_cursor_y += appCtx->line_h;
                     calculated_cursor_x = TEXT_AREA_X;
@@ -943,13 +998,15 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
 
         processed_bytes_total += current_block.num_bytes;
 
+        // Якщо курсор точно в кінці поточного обробленого блоку
         if (!cursor_position_found && processed_bytes_total == current_input_byte_idx) {
-            calculated_cursor_x = current_pen_x;
-            calculated_cursor_y = current_line_abs_y;
+            calculated_cursor_x = current_pen_x; // Позиція пера після цього блоку
+            calculated_cursor_y = current_line_abs_y;  // Y позиція цього блоку
             cursor_position_found = true;
         }
     }
 
+    // Якщо курсор в самому кінці тексту (після всіх символів)
     if (!cursor_position_found && current_input_byte_idx == final_text_len) {
         calculated_cursor_x = current_pen_x;
         calculated_cursor_y = current_line_abs_y;
@@ -959,10 +1016,9 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
     *out_cursor_exact_x = calculated_cursor_x;
 
     #if ENABLE_GAME_LOGS
-    if (log_file && (current_input_byte_idx > 0)) { // Log for relevant indices
-        // int loop_iteration_count is removed, so not logged
-        fprintf(log_file, "[CalculateCursorLayout] OUTPUT for idx %zu: final_abs_y: %d (line ~%d), final_exact_x: %d\n",
-                current_input_byte_idx, *out_cursor_abs_y, (appCtx->line_h > 0 ? *out_cursor_abs_y / appCtx->line_h : -1) , *out_cursor_exact_x);
+    if (log_file && (current_input_byte_idx > 0)) {
+        fprintf(log_file, "[CalculateCursorLayout] OUTPUT for byte_idx %zu: final_abs_y: %d (line ~%d), final_exact_x: %d\n",
+                current_input_byte_idx, *out_cursor_abs_y, (appCtx->line_h > 0 ? (*out_cursor_abs_y / appCtx->line_h) : -1) , *out_cursor_exact_x);
     }
     #endif
 }
