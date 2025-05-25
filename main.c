@@ -222,7 +222,33 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
     if (!appCtx->ren) { fprintf(stderr, "SDL_CreateRenderer error: %s\n", SDL_GetError()); SDL_DestroyWindow(appCtx->win); TTF_Quit(); SDL_Quit(); return false; }
     int physW_val, physH_val; SDL_GetRendererOutputSize(appCtx->ren, &physW_val, &physH_val);
     float scale_x = (float)physW_val / WINDOW_W; float scale_y = (float)physH_val / WINDOW_H; SDL_RenderSetScale(appCtx->ren, scale_x, scale_y);
-    const char* font_paths[] = { "Arial.ttf", "/System/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Unicode.ttf", "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", NULL };
+    const char* font_paths[] = {
+        // Пріоритет для шрифтів, що розповсюджуються з програмою (мають бути в робочому каталозі)
+        "Arial Unicode.ttf", // Спробуйте цей першим, якщо ви його додаєте до проєкту
+        "arial.ttf",         // Стандартний Arial як резервний варіант поруч з exe
+
+        // Системні шляхи для Windows (додано)
+#ifdef _WIN32
+        "C:/Windows/Fonts/arialuni.ttf", // Arial Unicode MS (якщо встановлено)
+        "C:/Windows/Fonts/arial.ttf",    // Стандартний Arial
+        "C:/Windows/Fonts/verdana.ttf",  // Verdana як альтернатива
+        "C:/Windows/Fonts/tahoma.ttf",   // Tahoma як альтернатива
+        "C:/Windows/Fonts/times.ttf",    // Times New Roman як базова альтернатива
+        "C:/Windows/Fonts/consola.ttf",  // Consolas (моноширинний, може бути корисним)
+#endif
+        // Системні шляхи для macOS (залишено з оригіналу)
+        "/System/Library/Fonts/Arial Unicode.ttf", // [ייט: המשתמש הציג את התוכן הזה]
+        "/System/Library/Fonts/Arial.ttf",         // [ייט: המשתמש הציג את התוכן הזה]
+        "/Library/Fonts/Arial Unicode.ttf",          // [ייט: המשתמש הציג את התוכן הזה]
+
+        // Системні шляхи для Linux (залишено з оригіналу)
+        "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf",                 // [ייט: המשתמש הציג את התוכן הזה]
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",                  // [ייט: המשתמש הציג את התוכן הזה]
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", // [ייט: המשתמש הציג את התוכן הזה]
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",                    // Ubuntu
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",                              // Інший поширений шлях Linux
+        NULL
+    };
     for (int i = 0; font_paths[i] != NULL; ++i) {
         #if SDL_TTF_VERSION_ATLEAST(2,20,0)
             appCtx->font = TTF_OpenFontDPI(font_paths[i], FONT_SIZE, (int)(72 * scale_x), (int)(72 * scale_y));

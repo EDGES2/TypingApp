@@ -138,7 +138,7 @@ endif()
 # --- macOS Specific Bundling and Packaging ---
 # ==========================================================================================
 if(APPLE)
-    # ... (Full macOS specific code as provided by user previously, I'm keeping it short for brevity here) ...
+    # ... (Full macOS specific code, assuming it's correct and complete) ...
     set(SDL2_LIBRARY_FILES_TO_BUNDLE "")
     if(SDL2_FOUND AND SDL2_LIBRARIES AND SDL2_LIBRARY_DIRS)
         foreach(LIB_NAME_STEM ${SDL2_LIBRARIES})
@@ -372,12 +372,14 @@ if(WIN32)
     list(REMOVE_DUPLICATES DLL_SEARCH_PATHS)
     message(STATUS "WIN32: DLL_SEARCH_PATHS: ${DLL_SEARCH_PATHS}")
 
+    # ВИДАЛЕНО: set(WINDOWS_FONT_FILE_BASENAME ...) та set(WINDOWS_FONT_FILE_SOURCE_PATH ...)
+    # оскільки ми більше не копіюємо шрифт з каталогу проєкту для Windows
+
     foreach(DLL_NAME ${RUNTIME_DEPENDENCY_DLLS})
         find_file(DLL_FILE_PATH NAMES ${DLL_NAME} HINTS ${DLL_SEARCH_PATHS} NO_DEFAULT_PATH)
         if(DLL_FILE_PATH)
             message(STATUS "Found DLL for Windows (for CPack install & POST_BUILD copy): ${DLL_FILE_PATH}")
             install(FILES "${DLL_FILE_PATH}" DESTINATION bin COMPONENT Runtime)
-            # This POST_BUILD command copies DLLs next to the executable in the build tree
             add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${DLL_FILE_PATH}"
@@ -396,6 +398,8 @@ if(WIN32)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/appicon.ico")
         install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/appicon.ico" DESTINATION "." COMPONENT Runtime)
     endif()
+    # ВИДАЛЕНО: Блок if(EXISTS "${WINDOWS_FONT_FILE_SOURCE_PATH}") ... install(FILES ...) для шрифту
+
 
     # CPack settings for NSIS (primarily used if 'cpack -G NSIS' is called)
     set(CPACK_PACKAGE_NAME "${PROJECT_NAME_STR}")
@@ -430,23 +434,18 @@ if(WIN32)
     # --- Автоматичне створення ZIP-архіву після збірки ---
     set(WIN_ZIP_PACKAGE_BASENAME "${PROJECT_NAME_STR}-${CPACK_PACKAGE_VERSION}-win64_direct")
     set(WIN_FINAL_ZIP_FILENAME "${CMAKE_BINARY_DIR}/${WIN_ZIP_PACKAGE_BASENAME}.zip")
-    set(WIN_ZIP_STAGING_DIR_PARENT "${CMAKE_CURRENT_BINARY_DIR}/staging_for_zip") # Батьківська папка для staging
-    set(WIN_ZIP_STAGING_DIR_NAME "${WIN_ZIP_PACKAGE_BASENAME}") # Назва самої папки, яку будемо архівувати
+    set(WIN_ZIP_STAGING_DIR_PARENT "${CMAKE_CURRENT_BINARY_DIR}/staging_for_zip")
+    set(WIN_ZIP_STAGING_DIR_NAME "${WIN_ZIP_PACKAGE_BASENAME}")
     set(WIN_ZIP_STAGING_DIR_FULLPATH "${WIN_ZIP_STAGING_DIR_PARENT}/${WIN_ZIP_STAGING_DIR_NAME}")
 
     # Target to prepare the staging directory
     set(STAGING_PREP_COMMAND_LIST "")
-    list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove -f "${WIN_FINAL_ZIP_FILENAME}") # remove old zip first
+    list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove -f "${WIN_FINAL_ZIP_FILENAME}")
     list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}")
     list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E make_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin")
     list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE_DIR:${PROJECT_NAME}>/${PROJECT_NAME}.exe" "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin/")
 
     foreach(dll_to_zip_name ${RUNTIME_DEPENDENCY_DLLS})
-        # DLLs are copied to $<TARGET_FILE_DIR:${PROJECT_NAME}>/ by POST_BUILD commands on ${PROJECT_NAME}.
-        # We attempt to copy them from there to the staging directory.
-        # The configure-time EXISTS check is removed as $<TARGET_FILE_DIR:...> is a build-time expression.
-        # If a DLL was not found by the earlier find_file, its POST_BUILD copy to the exe's dir
-        # would not have been added, and this copy_if_different might fail at build time (which is correct).
         list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE_DIR:${PROJECT_NAME}>/${dll_to_zip_name}" "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin/")
     endforeach()
 
@@ -456,22 +455,23 @@ if(WIN32)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/appicon.ico")
         list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/appicon.ico" "${WIN_ZIP_STAGING_DIR_FULLPATH}/appicon.ico")
     endif()
+    # ВИДАЛЕНО: Блок if(EXISTS "${WINDOWS_FONT_FILE_SOURCE_PATH}") ... list(APPEND STAGING_PREP_COMMAND_LIST ...) для шрифту
+
 
     add_custom_target(PrepareWinZipStaging ALL
             ${STAGING_PREP_COMMAND_LIST}
-            DEPENDS ${PROJECT_NAME} # Ensures ${PROJECT_NAME} and its POST_BUILD DLL copies are done
+            DEPENDS ${PROJECT_NAME}
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
             COMMENT "Preparing files for Windows ZIP package"
             VERBATIM
     )
 
     # Command to create the ZIP file from the staging directory
-    # It runs with WIN_ZIP_STAGING_DIR_FULLPATH as its working directory
     add_custom_command(
             OUTPUT "${WIN_FINAL_ZIP_FILENAME}"
             COMMAND ${CMAKE_COMMAND} -E tar cvf "${WIN_FINAL_ZIP_FILENAME}" --format=zip .
             WORKING_DIRECTORY "${WIN_ZIP_STAGING_DIR_FULLPATH}"
-            DEPENDS PrepareWinZipStaging # This command depends on the staging directory being fully prepared
+            DEPENDS PrepareWinZipStaging
             COMMENT "Creating ZIP: ${WIN_FINAL_ZIP_FILENAME}"
             VERBATIM
     )
@@ -480,7 +480,7 @@ if(WIN32)
     add_custom_target(CreateWinZipPackage_Direct ALL
             COMMAND ${CMAKE_COMMAND} -E remove_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}"
             COMMAND ${CMAKE_COMMAND} -E echo "Windows ZIP package (direct method) should be available at ${WIN_FINAL_ZIP_FILENAME}"
-            DEPENDS "${WIN_FINAL_ZIP_FILENAME}" # Depends on the output of the add_custom_command
+            DEPENDS "${WIN_FINAL_ZIP_FILENAME}"
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
             COMMENT "Finalizing Windows ZIP package and cleaning up: ${WIN_FINAL_ZIP_FILENAME}"
             VERBATIM
