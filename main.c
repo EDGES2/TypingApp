@@ -1372,16 +1372,36 @@ int main(int argc, char **argv) {
     if (bundle_resources_path_base_main) {
         #if defined(__APPLE__)
             snprintf(default_text_file_in_bundle, sizeof(default_text_file_in_bundle), "%s../Resources/%s", bundle_resources_path_base_main, TEXT_FILE_PATH_BASENAME);
-        #elif defined(_WIN32) || defined(__linux__)
+        #elif defined(_WIN32)
+            // Для Windows, SDL_GetBasePath() зазвичай повертає <app_dir>/bin/, якщо програма встановлена за допомогою нашого CMake скрипта.
+            // text.txt встановлюється в <app_dir>/.
+            // Отже, шлях до text.txt відносно виконуваного файлу буде "../text.txt".
+            snprintf(default_text_file_in_bundle, sizeof(default_text_file_in_bundle), "%s../%s", bundle_resources_path_base_main, TEXT_FILE_PATH_BASENAME);
+            FILE *test_f = fopen(default_text_file_in_bundle, "rb");
+            if (test_f) {
+                fclose(test_f);
+                if (log_file) fprintf(log_file, "INFO: Знайдено стандартний text.txt у встановленому місці: %s\n", default_text_file_in_bundle);
+            } else {
+                // Резервний варіант для випадків, коли виконуваний файл знаходиться в тій самій директорії, що й text.txt (наприклад, локальна збірка, а не встановлена версія)
+                snprintf(default_text_file_in_bundle, sizeof(default_text_file_in_bundle), "%s%s", bundle_resources_path_base_main, TEXT_FILE_PATH_BASENAME);
+                if (log_file) fprintf(log_file, "INFO: Стандартний text.txt не знайдено за шляхом '%s../%s'. Спроба '%s%s' (наприклад, локальна збірка).\n", bundle_resources_path_base_main, TEXT_FILE_PATH_BASENAME, bundle_resources_path_base_main, TEXT_FILE_PATH_BASENAME);
+            }
+        #elif defined(__linux__)
+            // Для Linux, text.txt копіюється поруч із виконуваним файлом у директорії збірки.
+            // При встановленні він може бути розміщений деінде, але типова команда `make install` може помістити його в share/
+            // Наразі припускаємо, що для "стандартного комплектного" випадку він знаходиться відносно виконуваного файлу.
             snprintf(default_text_file_in_bundle, sizeof(default_text_file_in_bundle), "%s%s", bundle_resources_path_base_main, TEXT_FILE_PATH_BASENAME);
         #else
+            // Загальний резервний варіант
             snprintf(default_text_file_in_bundle, sizeof(default_text_file_in_bundle), "%s%s", bundle_resources_path_base_main, TEXT_FILE_PATH_BASENAME);
         #endif
         SDL_free(bundle_resources_path_base_main);
+        bundle_resources_path_base_main = NULL;
     } else {
+        // Резервний варіант, якщо SDL_GetBasePath() не спрацював
         strncpy(default_text_file_in_bundle, TEXT_FILE_PATH_BASENAME, sizeof(default_text_file_in_bundle)-1);
         default_text_file_in_bundle[sizeof(default_text_file_in_bundle)-1] = '\0';
-        if (log_file) fprintf(log_file, "Warning: SDL_GetBasePath() failed for determining default text.txt path. Using CWD as fallback for default text.\n");
+        if (log_file) fprintf(log_file, "Попередження: SDL_GetBasePath() не спрацював для визначення шляху до стандартного text.txt. Використовується поточна робоча директорія як резервний варіант для стандартного тексту: %s\n", default_text_file_in_bundle);
     }
     if (log_file) { fprintf(log_file, "Path to default text.txt (source for initial copy if user's own is missing): %s\n", default_text_file_in_bundle); fflush(log_file); }
 
