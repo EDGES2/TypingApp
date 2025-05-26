@@ -14,11 +14,11 @@ set(COMPANY_NAME_STR "com.typingapp")   # Consistent with main.c and Info.plist
 if(APPLE)
     # macOS specific: Use Homebrew's PkgConfig by default
     set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version to run on")
-    set(HOMEBREW_PREFIX "/opt/homebrew") # Або /usr/local для Intel Macs, якщо Homebrew встановлено там
+    set(HOMEBREW_PREFIX "/opt/homebrew") # Or /usr/local for Intel Macs, if Homebrew is installed there
     set(ENV{PKG_CONFIG_PATH} "${HOMEBREW_PREFIX}/lib/pkgconfig")
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SDL2 REQUIRED sdl2)
-    pkg_check_modules(SDL2_TTF REQUIRED sdl2_ttf) # [cite: 2]
+    pkg_check_modules(SDL2_TTF REQUIRED sdl2_ttf) #
 elseif(WIN32)
     # Windows specific configuration
     # # CMAKE_PREFIX_PATH should be set in CLion CMake options:
@@ -64,7 +64,7 @@ elseif(WIN32)
     include_directories(SYSTEM "${SDL2_INCLUDE_DIRS}")
     include_directories(SYSTEM "${SDL2_TTF_INCLUDE_DIRS}")
     if(IS_DIRECTORY "${SDL2_INCLUDE_DIRS}/SDL2")
-        include_directories(SYSTEM "${SDL2_INCLUDE_DIRS}/SDL2") # Часто заголовки SDL2 знаходяться тут
+        include_directories(SYSTEM "${SDL2_INCLUDE_DIRS}/SDL2") # SDL2 headers are often located here [cite: 1]
         message(STATUS "WIN32: Globally added SYSTEM include path: ${SDL2_INCLUDE_DIRS}/SDL2") # [cite: 8]
     endif()
     message(STATUS "WIN32: Globally added SYSTEM include path: ${SDL2_INCLUDE_DIRS}") # [cite: 8]
@@ -78,7 +78,7 @@ else()
 endif()
 
 # --- Executable Definition ---
-# Додаємо всі .c файли з каталогу src/
+# Add all .c files from the src/ directory [cite: 1]
 add_executable(${PROJECT_NAME}
         src/main.c
         src/app_context.c
@@ -95,7 +95,7 @@ add_executable(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE
         ${SDL2_INCLUDE_DIRS}
         ${SDL2_TTF_INCLUDE_DIRS}
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"  # Додаємо src/ для локальних заголовкових файлів
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"  # Add src/ for local header files [cite: 1]
 )
 
 # --- Linking ---
@@ -104,7 +104,7 @@ if(WIN32)
             ${SDL2_LIBRARIES}
             ${SDL2_TTF_LIBRARIES}
     )
-    # Якщо у вас є файл resource.rc, він має бути в корені проєкту або шлях оновлено # [cite: 11]
+    # If you have a resource.rc file, it should be in the project root or the path updated [cite: 1, 11]
     set(WINDOWS_RESOURCE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/resource.rc") # [cite: 11]
     if(EXISTS "${WINDOWS_RESOURCE_FILE}")
         target_sources(${PROJECT_NAME} PRIVATE "${WINDOWS_RESOURCE_FILE}") # [cite: 11]
@@ -165,7 +165,7 @@ if(APPLE)
         endforeach() # [cite: 20]
     endif()
     list(REMOVE_DUPLICATES SDL2_TTF_LIBRARY_FILES_TO_BUNDLE)
-    # Оновлюємо шлях до appicon.icns # [cite: 21]
+    # Update the path to appicon.icns [cite: 1, 21]
     set(MACOSX_BUNDLE_ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/assets/appicon.icns") # [cite: 21]
     set(MACOSX_BUNDLE_INFO_STRING "${PROJECT_NAME_STR} Typing Application")
     set(MACOSX_BUNDLE_GUI_IDENTIFIER "${COMPANY_NAME_STR}.${PROJECT_NAME_STR}")
@@ -189,7 +189,7 @@ if(APPLE)
             "  <key>NSHighResolutionCapable</key>\n"
             "  <true/>\n"
             "  <key>CFBundleIconFile</key>\n"
-            "  <string>appicon.icns</string>\n" # Назва файлу іконки в бандлі
+            "  <string>appicon.icns</string>\n" # Name of icon file in bundle
             "  <key>CFBundleInfoDictionaryVersion</key>\n" # [cite: 24]
             "  <string>6.0</string>\n"
             "  <key>CFBundleShortVersionString</key>\n"
@@ -206,22 +206,22 @@ if(APPLE)
 
     set_target_properties(${PROJECT_NAME} PROPERTIES MACOSX_BUNDLE TRUE MACOSX_BUNDLE_INFO_PLIST "${INFO_PLIST_PATH}")
 
-    # Копіювання text.txt до бандлу (використовуємо оновлений TEXT_FILE_SOURCE)
+    # Copying text.txt to the bundle (using the updated TEXT_FILE_SOURCE) [cite: 1]
     if(EXISTS "${TEXT_FILE_SOURCE}") # [cite: 26]
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${TEXT_FILE_SOURCE}" # Джерело: assets/text.txt
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Resources/text.txt" # Призначення в бандлі
+                "${TEXT_FILE_SOURCE}" # Source: assets/text.txt [cite: 1]
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Resources/text.txt" # Destination in the bundle [cite: 1]
                 COMMENT "Copying text.txt to Bundle Resources"
         )
     endif() # [cite: 27]
 
-    # Копіювання appicon.icns до бандлу (використовуємо оновлений MACOSX_BUNDLE_ICON_FILE)
+    # Copying appicon.icns to the bundle (using the updated MACOSX_BUNDLE_ICON_FILE) [cite: 1]
     if(EXISTS "${MACOSX_BUNDLE_ICON_FILE}")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${MACOSX_BUNDLE_ICON_FILE}" # Джерело: assets/appicon.icns
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Resources/appicon.icns" # Призначення в бандлі
+                "${MACOSX_BUNDLE_ICON_FILE}" # Source: assets/appicon.icns [cite: 1]
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../Resources/appicon.icns" # Destination in the bundle [cite: 1]
                 COMMENT "Copying appicon.icns to Bundle Resources" # [cite: 28]
         )
     endif()
@@ -239,13 +239,13 @@ if(APPLE)
     )
     set(LIBS_TO_BUNDLE ${SDL2_LIBRARY_FILES_TO_BUNDLE} ${SDL2_TTF_LIBRARY_FILES_TO_BUNDLE} ${OTHER_DEPENDENCIES_TO_BUNDLE})
     list(REMOVE_DUPLICATES LIBS_TO_BUNDLE)
-    list(FILTER LIBS_TO_BUNDLE EXCLUDE REGEX "^$") # Видаляємо порожні елементи, якщо такі є
+    list(FILTER LIBS_TO_BUNDLE EXCLUDE REGEX "^$") # Remove empty elements, if any [cite: 1]
 
-    set(ALL_FINAL_BUNDLED_NAMES_LIST "") # Список фінальних імен для скрипта
+    set(ALL_FINAL_BUNDLED_NAMES_LIST "") # List of final names for the script [cite: 1]
     foreach(temp_lib_path_for_list ${LIBS_TO_BUNDLE})
         get_filename_component(temp_orig_name_for_list ${temp_lib_path_for_list} NAME)
         set(temp_final_name_for_list ${temp_orig_name_for_list})
-        # Логіка перейменування SDL бібліотек для консистентності
+        # Logic for renaming SDL libraries for consistency [cite: 1]
         if(temp_lib_path_for_list MATCHES ".*/libSDL2-[0-9.]+\\.dylib$" OR temp_lib_path_for_list MATCHES ".*/libSDL2\\.dylib$")
             if (NOT temp_lib_path_for_list MATCHES ".*SDL2_image.*" AND NOT temp_lib_path_for_list MATCHES ".*SDL2_mixer.*" AND NOT temp_lib_path_for_list MATCHES ".*SDL2_net.*" AND NOT temp_lib_path_for_list MATCHES ".*SDL2_ttf.*") # [cite: 30]
                 set(temp_final_name_for_list "libSDL2-2.0.0.dylib")
@@ -263,7 +263,7 @@ if(APPLE)
         if(EXISTS "${LIB_PATH}")
             get_filename_component(ORIGINAL_LIB_FILENAME ${LIB_PATH} NAME)
             set(FINAL_BUNDLED_LIB_NAME ${ORIGINAL_LIB_FILENAME})
-            # Логіка перейменування SDL бібліотек (повторюється для консистентності при копіюванні та зміні шляхів) # [cite: 32]
+            # Logic for renaming SDL libraries (repeated for consistency during copying and path changes) [cite: 1, 32]
             if(LIB_PATH MATCHES ".*/libSDL2-[0-9.]+\\.dylib$" OR LIB_PATH MATCHES ".*/libSDL2\\.dylib$")
                 if (NOT LIB_PATH MATCHES ".*SDL2_image.*" AND NOT LIB_PATH MATCHES ".*SDL2_mixer.*" AND NOT LIB_PATH MATCHES ".*SDL2_net.*" AND NOT LIB_PATH MATCHES ".*SDL2_ttf.*") # [cite: 32]
                     set(FINAL_BUNDLED_LIB_NAME "libSDL2-2.0.0.dylib")
@@ -283,7 +283,7 @@ if(APPLE)
                     "${FRAMEWORKS_DIR}/${FINAL_BUNDLED_LIB_NAME}" # [cite: 35]
                     COMMENT "Fixing id for ${FINAL_BUNDLED_LIB_NAME}" VERBATIM
             )
-            # Ця команда змінює шляхи в самому .app файлі
+            # This command changes paths in the .app file itself [cite: 1]
             add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                     COMMAND /usr/bin/install_name_tool -change "${LIB_PATH}" "@rpath/${FINAL_BUNDLED_LIB_NAME}" # [cite: 36]
                     "$<TARGET_FILE:${PROJECT_NAME}>"
@@ -294,7 +294,7 @@ if(APPLE)
             find_program(BASH_EXECUTABLE bash)
 
             if(OTOOL_EXECUTABLE AND BASH_EXECUTABLE) # [cite: 37]
-                # Оновлюємо шлях до шаблону скрипта
+                # Update the path to the script template [cite: 1]
                 set(FIX_DEPS_SCRIPT_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/scripts/fix_inner_deps.sh.in") # [cite: 37]
                 if(EXISTS "${FIX_DEPS_SCRIPT_TEMPLATE}")
                     set(CONFIGURED_FIX_DEPS_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/fix_inner_deps_for_${FINAL_BUNDLED_LIB_NAME}.sh")
@@ -314,7 +314,7 @@ if(APPLE)
                             "${FINAL_BUNDLED_LIB_NAME}"
                             "${OTOOL_EXECUTABLE}"
                             "${HOMEBREW_PREFIX}"
-                            ${ALL_FINAL_BUNDLED_NAMES_LIST} # Передаємо список усіх фінальних імен # [cite: 43]
+                            ${ALL_FINAL_BUNDLED_NAMES_LIST} # Pass the list of all final names [cite: 1, 43]
                             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
                             COMMENT "Fixing internal dependencies for ${FINAL_BUNDLED_LIB_NAME} using script" VERBATIM
                     ) # [cite: 44]
@@ -334,15 +334,15 @@ if(APPLE)
             INSTALL_RPATH "@executable_path/../Frameworks"
     )
 
-    # Явне виправлення для головних бібліотек SDL, якщо вони ще не виправлені циклом вище # [cite: 47]
-    # Це може бути надлишковим, якщо цикл вже обробив їх правильно
-    set(SDL2_ACTUAL_LINK_PATH "/opt/homebrew/opt/sdl2/lib/libSDL2-2.0.0.dylib") # Або ваш актуальний шлях
+    # Explicit fix for main SDL libraries if not already fixed by the loop above [cite: 1, 47]
+    # This might be redundant if the loop has already processed them correctly [cite: 1]
+    set(SDL2_ACTUAL_LINK_PATH "/opt/homebrew/opt/sdl2/lib/libSDL2-2.0.0.dylib") # Or your actual path [cite: 1]
     set(SDL2_BUNDLED_NAME "libSDL2-2.0.0.dylib")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND /usr/bin/install_name_tool -change "${SDL2_ACTUAL_LINK_PATH}" "@rpath/${SDL2_BUNDLED_NAME}" "$<TARGET_FILE:${PROJECT_NAME}>"
             COMMENT "Explicitly fixing executable link for SDL2 (if not covered by loop)" VERBATIM
     )
-    set(SDL2_TTF_ACTUAL_LINK_PATH "/opt/homebrew/opt/sdl2_ttf/lib/libSDL2_ttf-2.0.0.dylib") # Або ваш актуальний шлях # [cite: 48]
+    set(SDL2_TTF_ACTUAL_LINK_PATH "/opt/homebrew/opt/sdl2_ttf/lib/libSDL2_ttf-2.0.0.dylib") # Or your actual path [cite: 1, 48]
     set(SDL2_TTF_BUNDLED_NAME "libSDL2_ttf-2.0.0.dylib")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND /usr/bin/install_name_tool -change "${SDL2_TTF_ACTUAL_LINK_PATH}" "@rpath/${SDL2_TTF_BUNDLED_NAME}" "$<TARGET_FILE:${PROJECT_NAME}>"
@@ -354,9 +354,9 @@ if(APPLE)
     set(FINAL_DMG_FILENAME "${CMAKE_BINARY_DIR}/${PROJECT_NAME_STR}.dmg")
     set(TEMP_DMG_FILENAME "${CMAKE_BINARY_DIR}/temp_${PROJECT_NAME_STR}.dmg")
     set(DMG_BACKGROUND_IMAGE_NAME "dmg_background.png") # [cite: 48]
-    # Оновлюємо шлях до фонового зображення DMG # [cite: 49]
+    # Update the path to the DMG background image [cite: 1, 49]
     set(DMG_BACKGROUND_IMAGE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/assets/${DMG_BACKGROUND_IMAGE_NAME}") # [cite: 49]
-    set(MOUNT_POINT "/tmp/dmg_mount_point_for_${PROJECT_NAME_STR}") # Використовуємо тимчасовий каталог
+    set(MOUNT_POINT "/tmp/dmg_mount_point_for_${PROJECT_NAME_STR}") # Use a temporary directory [cite: 1]
     set(APP_BUNDLE_SOURCE_PATH "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>")
     set(APP_BUNDLE_DESTINATION_NAME "${PROJECT_NAME_STR}.app")
 
@@ -383,10 +383,10 @@ if(APPLE)
     if(EXISTS "${DMG_BACKGROUND_IMAGE_PATH}")
         list(APPEND DMG_LAYOUT_COMMANDS COMMAND ${CMAKE_COMMAND} -E make_directory "${MOUNT_POINT}/.background")
         list(APPEND DMG_LAYOUT_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy "${DMG_BACKGROUND_IMAGE_PATH}" "${MOUNT_POINT}/.background/${DMG_BACKGROUND_IMAGE_NAME}") # [cite: 53]
-        # AppleScript для налаштування вигляду DMG
+        # AppleScript for customizing DMG appearance [cite: 1]
         list(APPEND DMG_LAYOUT_COMMANDS COMMAND osascript
                 -e "tell application \"Finder\""
-                -e "  delay 2" # Збільшено для надійності
+                -e "  delay 2" # Increased for reliability [cite: 1]
                 -e "  try"
                 -e "    set mountedVolumePath to POSIX file \"${MOUNT_POINT}\"" # [cite: 54]
                 -e "    set mountedVolumeAlias to mountedVolumePath as alias" # [cite: 54]
@@ -395,13 +395,13 @@ if(APPLE)
                 -e "      set current view to icon view"
                 -e "      set toolbar visible to false"
                 -e "      set statusbar visible to false"
-                -e "      set the bounds to {100, 100, 780, 540}" # Розмір вікна DMG # [cite: 56]
+                -e "      set the bounds to {100, 100, 780, 540}" # DMG window size [cite: 1, 56]
                 -e "      set viewOptions to the icon view options"
                 -e "      set arrangement of viewOptions to not arranged" # [cite: 56]
-                -e "      set icon size of viewOptions to 100" # Розмір іконок # [cite: 57]
+                -e "      set icon size of viewOptions to 100" # Icon size [cite: 1, 57]
                 -e "      set background picture of viewOptions to file \".background:${DMG_BACKGROUND_IMAGE_NAME}\" of mountedVolumeAlias"
-                -e "      set position of item \"${APP_BUNDLE_DESTINATION_NAME}\" to {180, 190}" # Позиція .app
-                -e "      set position of item \"Applications\" to {550, 190}" # Позиція Applications # [cite: 58]
+                -e "      set position of item \"${APP_BUNDLE_DESTINATION_NAME}\" to {180, 190}" # Position of .app [cite: 1]
+                -e "      set position of item \"Applications\" to {550, 190}" # Position of Applications [cite: 1, 58]
                 -e "    end tell"
                 -e "    update mountedVolumeAlias without registering applications"
                 -e "    delay 1"
@@ -437,7 +437,7 @@ if(APPLE)
     endif()
     list(APPEND DMG_COMMANDS ${DMG_LAYOUT_COMMANDS}) # [cite: 65]
     list(APPEND DMG_COMMANDS COMMAND sync COMMENT "Syncing filesystem")
-    list(APPEND DMG_COMMANDS COMMAND sync COMMENT "Syncing filesystem again") # Додатковий sync для надійності
+    list(APPEND DMG_COMMANDS COMMAND sync COMMENT "Syncing filesystem again") # Additional sync for reliability [cite: 1]
     list(APPEND DMG_COMMANDS COMMAND hdiutil detach "${MOUNT_POINT}" -force -quiet
             COMMENT "Unmounting temporary DMG") # [cite: 66]
     list(APPEND DMG_COMMANDS COMMAND hdiutil convert "${TEMP_DMG_FILENAME}" -format UDZO -imagekey zlib-level=9 -o "${FINAL_DMG_FILENAME}"
@@ -455,7 +455,7 @@ if(APPLE)
 
     install(TARGETS ${PROJECT_NAME} BUNDLE DESTINATION "/Applications" COMPONENT Runtime)
 
-endif() # [cite: 68] # APPLE
+endif() # APPLE
 
 
 # ==========================================================================================
@@ -463,22 +463,22 @@ endif() # [cite: 68] # APPLE
 # ==========================================================================================
 if(WIN32)
     install(TARGETS ${PROJECT_NAME}
-            RUNTIME DESTINATION bin # Встановлюємо .exe в каталог bin
+            RUNTIME DESTINATION bin # Install .exe to the bin directory [cite: 1]
             COMPONENT Runtime # [cite: 68]
     )
 
     set(RUNTIME_DEPENDENCY_DLLS
             "SDL2.dll"
             "SDL2_ttf.dll"
-            "libfreetype-6.dll" # Залежність SDL2_ttf
-            "libpng16-16.dll"   # Залежність freetype
-            "zlib1.dll"         # Залежність libpng # [cite: 68]
-            "libbrotlidec.dll"  # Залежність freetype (через harfbuzz, можливо) # [cite: 69]
-            "libbrotlicommon.dll" # Залежність freetype
-            # Залежності MinGW (можуть відрізнятися залежно від версії компілятора)
-            "libgcc_s_seh-1.dll" # Або інша версія, наприклад, libgcc_s_dw2-1.dll для 32-біт
+            "libfreetype-6.dll" # SDL2_ttf dependency [cite: 1]
+            "libpng16-16.dll"   # freetype dependency [cite: 1]
+            "zlib1.dll"         # libpng dependency [cite: 1, 68]
+            "libbrotlidec.dll"  # freetype dependency (via harfbuzz, possibly) [cite: 1, 69]
+            "libbrotlicommon.dll" # freetype dependency
+            # MinGW dependencies (may vary depending on compiler version) [cite: 1]
+            "libgcc_s_seh-1.dll" # Or another version, e.g., libgcc_s_dw2-1.dll for 32-bit [cite: 1]
             "libwinpthread-1.dll"
-            # "libstdc++-6.dll" # Якщо б це був C++ # [cite: 70]
+            # "libstdc++-6.dll" # If it were C++ [cite: 1, 70]
     )
     set(DLL_SEARCH_PATHS "")
     if(SDL2_BASE_DIR AND IS_DIRECTORY "${SDL2_BASE_DIR}/bin")
@@ -488,7 +488,7 @@ if(WIN32)
         list(APPEND DLL_SEARCH_PATHS "${SDL2_TTF_BASE_DIR}/bin")
     endif() # [cite: 70]
 
-    # Додаємо шлях до bin компілятора MinGW для пошуку DLL (libgcc, libwinpthread)
+    # Add path to MinGW compiler bin for DLL search (libgcc, libwinpthread) [cite: 1]
     if(DEFINED CMAKE_C_COMPILER_ID AND CMAKE_C_COMPILER_ID MATCHES "GNU")
         get_filename_component(MINGW_BIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
         if(IS_DIRECTORY "${MINGW_BIN_DIR}")
@@ -498,36 +498,36 @@ if(WIN32)
     endif()
     list(REMOVE_DUPLICATES DLL_SEARCH_PATHS)
     message(STATUS "WIN32: DLL_SEARCH_PATHS: ${DLL_SEARCH_PATHS}") # [cite: 71]
-    # [cite: 71] # ВИДАЛЕНО: set(WINDOWS_FONT_FILE_BASENAME ...) та set(WINDOWS_FONT_FILE_SOURCE_PATH ...)
+    # [cite: 71] # REMOVED: set(WINDOWS_FONT_FILE_BASENAME ...) та set(WINDOWS_FONT_FILE_SOURCE_PATH ...)
 
     foreach(DLL_NAME ${RUNTIME_DEPENDENCY_DLLS})
         find_file(DLL_FILE_PATH NAMES ${DLL_NAME} HINTS ${DLL_SEARCH_PATHS} NO_DEFAULT_PATH)
         if(DLL_FILE_PATH)
             message(STATUS "Found DLL for Windows (for CPack install & POST_BUILD copy): ${DLL_FILE_PATH}") # [cite: 72]
-            install(FILES "${DLL_FILE_PATH}" DESTINATION bin COMPONENT Runtime) # Копіюємо DLL в bin
+            install(FILES "${DLL_FILE_PATH}" DESTINATION bin COMPONENT Runtime) # Copy DLL to bin
             add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD # [cite: 72]
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${DLL_FILE_PATH}"
-                    "$<TARGET_FILE_DIR:${PROJECT_NAME}>/" # Копіюємо поруч з .exe в каталозі збірки # [cite: 73]
+                    "$<TARGET_FILE_DIR:${PROJECT_NAME}>/" # Copy next to .exe in the build directory [cite: 1, 73]
                     COMMENT "Copying ${DLL_NAME} to build directory for Windows" # [cite: 73]
             )
-            unset(DLL_FILE_PATH CACHE) # Важливо для наступного пошуку find_file
+            unset(DLL_FILE_PATH CACHE) # Important for the next find_file search [cite: 1]
         else()
             message(WARNING "Could not find DLL: ${DLL_NAME}. It will not be included in ZIP/Installer. The application may not run.") # [cite: 74, 75]
         endif()
     endforeach()
 
-    # Встановлення text.txt (використовуємо оновлений TEXT_FILE_SOURCE)
+    # Install text.txt (using the updated TEXT_FILE_SOURCE) [cite: 1]
     if(EXISTS "${TEXT_FILE_SOURCE}") # [cite: 75]
-        install(FILES "${TEXT_FILE_SOURCE}" DESTINATION "." COMPONENT Runtime) # Встановлюємо text.txt в корінь інсталяції
+        install(FILES "${TEXT_FILE_SOURCE}" DESTINATION "." COMPONENT Runtime) # Install text.txt to the installation root [cite: 1]
     endif()
 
-    # Встановлення appicon.ico (з каталогу assets)
+    # Install appicon.ico (from assets directory) [cite: 1]
     set(WINDOWS_APP_ICON_SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/assets/appicon.ico")
     if(EXISTS "${WINDOWS_APP_ICON_SOURCE_PATH}")
-        install(FILES "${WINDOWS_APP_ICON_SOURCE_PATH}" DESTINATION "." COMPONENT Runtime) # Встановлюємо appicon.ico в корінь інсталяції
+        install(FILES "${WINDOWS_APP_ICON_SOURCE_PATH}" DESTINATION "." COMPONENT Runtime) # Install appicon.ico to the installation root [cite: 1]
     endif() # [cite: 76]
-    # [cite: 76] # ВИДАЛЕНО: Блок if(EXISTS "${WINDOWS_FONT_FILE_SOURCE_PATH}") ... install(FILES ...) для шрифту
+    # [cite: 76] # REMOVED: Block if(EXISTS "${WINDOWS_FONT_FILE_SOURCE_PATH}") ... install(FILES ...) for font [cite: 1]
 
     # CPack settings for NSIS
     set(CPACK_PACKAGE_NAME "${PROJECT_NAME_STR}")
@@ -553,7 +553,7 @@ if(WIN32)
 
     set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
-    set(CPACK_NSIS_REQUEST_EXECUTION_LEVEL "admin") # Залишаємо запит прав адміністратора
+    set(CPACK_NSIS_REQUEST_EXECUTION_LEVEL "admin") # Keep administrator rights request [cite: 1]
 
     # Define the main executable target for CPack
     set(CPACK_PACKAGE_EXECUTABLES "${PROJECT_NAME}" "${PROJECT_NAME_STR}")
@@ -563,9 +563,9 @@ if(WIN32)
 
     # Start Menu Links - Be explicit with the path to the executable
     set(CPACK_NSIS_MENU_LINKS
-            "bin\\${PROJECT_NAME}.exe" # Шлях до .exe відносно $INSTDIR
-            "${PROJECT_NAME_STR}"      # Назва ярлика в папці меню "Пуск"
-            # (Папка меню "Пуск" буде називатися ${PROJECT_NAME_STR})
+            "bin\\${PROJECT_NAME}.exe" # Path to .exe relative to $INSTDIR [cite: 1]
+            "${PROJECT_NAME_STR}"      # Shortcut name in the Start Menu folder [cite: 1]
+            # (The Start Menu folder will be named ${PROJECT_NAME_STR}) [cite: 1]
     )
 
     # Desktop Shortcut variable - CPack uses this with CPACK_PACKAGE_EXECUTABLES
@@ -595,31 +595,31 @@ if(WIN32)
     set(CPACK_COMPONENT_RUNTIME_REQUIRED TRUE)
     set(CPACK_COMPONENTS_ALL Runtime)
 
-    # --- Автоматичне створення ZIP-архіву після збірки ---
+    # --- Automatic ZIP archive creation after build ---
     set(WIN_ZIP_PACKAGE_BASENAME "${PROJECT_NAME_STR}-${CPACK_PACKAGE_VERSION}-win64_direct")
     set(WIN_FINAL_ZIP_FILENAME "${CMAKE_BINARY_DIR}/${WIN_ZIP_PACKAGE_BASENAME}.zip")
     set(WIN_ZIP_STAGING_DIR_PARENT "${CMAKE_CURRENT_BINARY_DIR}/staging_for_zip")
-    set(WIN_ZIP_STAGING_DIR_NAME "${WIN_ZIP_PACKAGE_BASENAME}") # Корінь архіву буде мати цю назву # [cite: 79]
+    set(WIN_ZIP_STAGING_DIR_NAME "${WIN_ZIP_PACKAGE_BASENAME}") # The archive root will have this name [cite: 1, 79]
     set(WIN_ZIP_STAGING_DIR_FULLPATH "${WIN_ZIP_STAGING_DIR_PARENT}/${WIN_ZIP_STAGING_DIR_NAME}")
 
     # Target to prepare the staging directory
     set(STAGING_PREP_COMMAND_LIST "")
-    list(APPEND STAGING_PREP_C-OMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove -f "${WIN_FINAL_ZIP_FILENAME}")
+    list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove -f "${WIN_FINAL_ZIP_FILENAME}") # Typo STAGING_PREP_C-OMMAND_LIST fixed
     list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}")
-    list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E make_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin") # Створюємо bin в staging
-    # Копіюємо .exe в staging/bin # [cite: 80]
+    list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E make_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin") # Create bin in staging [cite: 1]
+    # Copy .exe to staging/bin [cite: 1, 80]
     list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE_DIR:${PROJECT_NAME}>/${PROJECT_NAME}.exe" "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin/")
 
-    # Копіюємо DLL в staging/bin
+    # Copy DLLs to staging/bin
     foreach(dll_to_zip_name ${RUNTIME_DEPENDENCY_DLLS})
         list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE_DIR:${PROJECT_NAME}>/${dll_to_zip_name}" "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin/")
     endforeach()
 
-    # Копіюємо appicon.ico (з assets) в корінь staging
-    if(EXISTS "${WINDOWS_APP_ICON_ICO}") # Використовуємо вже визначену змінну # [cite: 81]
+    # Copy appicon.ico (from assets) to staging root
+    if(EXISTS "${WINDOWS_APP_ICON_ICO}") # Use the already defined variable [cite: 81]
         list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WINDOWS_APP_ICON_ICO}" "${WIN_ZIP_STAGING_DIR_FULLPATH}/appicon.ico")
     endif()
-    # [cite: 81] # ВИДАЛЕНО: Блок if(EXISTS "${WINDOWS_FONT_FILE_SOURCE_PATH}") ... list(APPEND STAGING_PREP_COMMAND_LIST ...) для шрифту
+    # [cite: 81] # REMOVED: Block if(EXISTS "${WINDOWS_FONT_FILE_SOURCE_PATH}") ... list(APPEND STAGING_PREP_COMMAND_LIST ...) for font [cite: 1]
 
 
     add_custom_target(PrepareWinZipStaging ALL
@@ -633,40 +633,40 @@ if(WIN32)
     # Command to create the ZIP file from the staging directory
     add_custom_command(
             OUTPUT "${WIN_FINAL_ZIP_FILENAME}"
-            COMMAND ${CMAKE_COMMAND} -E tar cvf "${WIN_FINAL_ZIP_FILENAME}" --format=zip . # '.' означає вміст поточного каталогу # [cite: 83]
-            WORKING_DIRECTORY "${WIN_ZIP_STAGING_DIR_FULLPATH}" # Важливо! Працюємо зсередини WIN_ZIP_STAGING_DIR_FULLPATH # [cite: 83, 84]
+            COMMAND ${CMAKE_COMMAND} -E tar cvf "${WIN_FINAL_ZIP_FILENAME}" --format=zip . # '.' means the contents of the current directory [cite: 1, 83]
+            WORKING_DIRECTORY "${WIN_ZIP_STAGING_DIR_FULLPATH}" # Important! Work from inside WIN_ZIP_STAGING_DIR_FULLPATH [cite: 1, 83, 84]
             DEPENDS PrepareWinZipStaging
             COMMENT "Creating ZIP: ${WIN_FINAL_ZIP_FILENAME} from ${WIN_ZIP_STAGING_DIR_FULLPATH}"
             VERBATIM
     )
 
-    # Final target that depends on the ZIP file and cleans up the staging directory (опціонально)
+    # Final target that depends on the ZIP file and cleans up the staging directory (optional)
     add_custom_target(CreateWinZipPackage_Direct ALL
-            # Можна видалити команду очищення, якщо хочете залишити staging для перевірки
+            # The cleanup command can be removed if you want to keep staging for verification [cite: 1]
             # COMMAND ${CMAKE_COMMAND} -E remove_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}"
             COMMAND ${CMAKE_COMMAND} -E echo "Windows ZIP package (direct method) should be available at ${WIN_FINAL_ZIP_FILENAME}" # [cite: 85]
-            DEPENDS "${WIN_FINAL_ZIP_FILENAME}" # Залежить від створення ZIP
+            DEPENDS "${WIN_FINAL_ZIP_FILENAME}" # Depends on ZIP creation
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
             COMMENT "Finalizing Windows ZIP package: ${WIN_FINAL_ZIP_FILENAME}"
-            VERBATIM #
+            VERBATIM # [cite: 87]
     )
 
 endif() # WIN32
 
-# Загальна інсталяція для систем, що не є APPLE (наприклад, Linux, якщо не крос-компіляція)
-# Для Windows це вже оброблено вище
+# General installation for non-APPLE systems (e.g., Linux, if not cross-compiling)
+# This is already handled for Windows above
 if(NOT APPLE AND NOT WIN32 AND NOT CMAKE_CROSSCOMPILING)
     install(TARGETS ${PROJECT_NAME}
-            RUNTIME DESTINATION bin # Встановлюємо в <prefix>/bin
+            RUNTIME DESTINATION bin # Install to <prefix>/bin [cite: 1]
             COMPONENT Runtime #
     )
-    # Можливо, тут також потрібно копіювати text.txt для Linux інсталяції
+    # Possibly also need to copy text.txt for Linux installation here
     if(EXISTS "${TEXT_FILE_SOURCE}")
-        install(FILES "${TEXT_FILE_SOURCE}" DESTINATION "share/${PROJECT_NAME_STR}" COMPONENT Runtime) # Приклад: share/TypingApp/text.txt #
+        install(FILES "${TEXT_FILE_SOURCE}" DESTINATION "share/${PROJECT_NAME_STR}" COMPONENT Runtime) # Example: share/TypingApp/text.txt [cite: 1]
     endif()
 endif()
 
-# Включаємо CPack тільки якщо це Windows або macOS, де ми його налаштували
+# Include CPack only if it's Windows or macOS, where we configured it [cite: 1]
 if(APPLE OR WIN32)
     include(CPack)
 endif()

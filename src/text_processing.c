@@ -250,7 +250,7 @@ int get_codepoint_advance_and_metrics_func(AppContext *appCtx, Uint32 codepoint,
         return fallback_adv_logical > 0 ? fallback_adv_logical : 1;
     }
 
-    // Використовуємо логічну висоту рядка як базу для висоти символу
+    // Use logical line height as the basis for character height
     int base_logical_h = appCtx->line_h > 0 ? appCtx->line_h : FONT_SIZE;
     if (base_logical_h <= 0) base_logical_h = 1;
 
@@ -261,8 +261,8 @@ int get_codepoint_advance_and_metrics_func(AppContext *appCtx, Uint32 codepoint,
         char_h_val_logical = appCtx->glyph_h_cache[COL_TEXT][codepoint];
     } else {
         if (codepoint == '\t') {
-            // Для табуляції, ширина розраховується динамічно в get_next_text_block_func.
-            // Тут можна повернути ширину одного пробілу як placeholder, якщо потрібно.
+            // For tabulation, the width is calculated dynamically in get_next_text_block_func.
+            // Here, the width of a single space can be returned as a placeholder if needed.
             final_adv_logical = appCtx->space_advance_width > 0 ? appCtx->space_advance_width : (fallback_adv_logical > 0 ? fallback_adv_logical : 1);
             char_w_val_logical = final_adv_logical;
             char_h_val_logical = base_logical_h;
