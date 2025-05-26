@@ -4,6 +4,7 @@
 #include <string.h>     // For memcpy, strerror
 #include <stdlib.h>     // For malloc, realloc, free
 #include <errno.h>      // For errno
+#include <math.h> // For roundf
 
 // Helper function for logging if appCtx->log_file_handle is available
 static void log_message(AppContext *appCtx, const char* message) {
@@ -238,44 +239,72 @@ char* PreprocessText(AppContext *appCtx, const char* raw_text_buffer, size_t raw
 }
 
 
-int get_codepoint_advance_and_metrics_func(AppContext *appCtx, Uint32 codepoint, int fallback_adv, int *out_char_w, int *out_char_h) {
-    int adv = 0;
-    int char_w = 0;
-    int char_h = 0;
+int get_codepoint_advance_and_metrics_func(AppContext *appCtx, Uint32 codepoint, int fallback_adv_logical, int *out_char_w_logical, int *out_char_h_logical) {
+    int final_adv_logical;
+    int char_w_val_logical = 0;
+    int char_h_val_logical = 0;
 
     if (!appCtx || !appCtx->font) {
-        if (out_char_w) *out_char_w = fallback_adv;
-        if (out_char_h) *out_char_h = FONT_SIZE; // Use FONT_SIZE as a fallback
-        return fallback_adv;
+        if (out_char_w_logical) *out_char_w_logical = fallback_adv_logical > 0 ? fallback_adv_logical : 1;
+        if (out_char_h_logical) *out_char_h_logical = FONT_SIZE > 0 ? FONT_SIZE : 1;
+        return fallback_adv_logical > 0 ? fallback_adv_logical : 1;
     }
 
-    char_h = TTF_FontHeight(appCtx->font); // Base height
+    // Використовуємо логічну висоту рядка як базу для висоти символу
+    int base_logical_h = appCtx->line_h > 0 ? appCtx->line_h : FONT_SIZE;
+    if (base_logical_h <= 0) base_logical_h = 1;
 
-    if (codepoint < 128 && codepoint >= 32) { // For ASCII characters from cache
-        adv = appCtx->glyph_adv_cache[codepoint];
-        // Take dimensions from cache for COL_TEXT, as they don't depend on color for geometry
-        if (appCtx->glyph_w_cache[COL_TEXT][codepoint] > 0) char_w = appCtx->glyph_w_cache[COL_TEXT][codepoint];
-        else char_w = adv; // If width in cache is 0, use advance
 
-        if (appCtx->glyph_h_cache[COL_TEXT][codepoint] > 0) char_h = appCtx->glyph_h_cache[COL_TEXT][codepoint];
-        // else char_h remains TTF_FontHeight(appCtx->font)
+    if (codepoint < 128 && codepoint >= 32) { // ASCII from cache
+        final_adv_logical = appCtx->glyph_adv_cache[codepoint];
+        char_w_val_logical = appCtx->glyph_w_cache[COL_TEXT][codepoint];
+        char_h_val_logical = appCtx->glyph_h_cache[COL_TEXT][codepoint];
+    } else {
+        if (codepoint == '\t') {
+            // Для табуляції, ширина розраховується динамічно в get_next_text_block_func.
+            // Тут можна повернути ширину одного пробілу як placeholder, якщо потрібно.
+            final_adv_logical = appCtx->space_advance_width > 0 ? appCtx->space_advance_width : (fallback_adv_logical > 0 ? fallback_adv_logical : 1);
+            char_w_val_logical = final_adv_logical;
+            char_h_val_logical = base_logical_h;
+        } else if (codepoint == '\n') {
+            final_adv_logical = 0;
+            char_w_val_logical = 0;
+            char_h_val_logical = base_logical_h;
+        } else { // Other non-cached characters
+            int scaled_adv_px_otf, scaled_min_x_otf, scaled_max_x_otf, scaled_min_y_otf, scaled_max_y_otf;
+            // TTF_GlyphMetrics32 returns values in pixels for the loaded (DPI-aware) font
+            if (TTF_GlyphMetrics32(appCtx->font, codepoint, &scaled_min_x_otf, &scaled_max_x_otf, &scaled_min_y_otf, &scaled_max_y_otf, &scaled_adv_px_otf) != 0) {
+                final_adv_logical = fallback_adv_logical;
+                char_w_val_logical = fallback_adv_logical; // Use fallback as logical
+                char_h_val_logical = base_logical_h;     // Use base logical height
+            } else {
+                final_adv_logical = (appCtx->scale_x_factor > 0.01f) ? (int)roundf((float)scaled_adv_px_otf / appCtx->scale_x_factor) : scaled_adv_px_otf;
 
-        if (adv == 0 && fallback_adv > 0) adv = fallback_adv; // If advance from cache is 0
-    } else { // For non-ASCII or control characters (if they are passed here at all)
-        if (TTF_GlyphMetrics32(appCtx->font, codepoint, NULL, NULL, NULL, NULL, &adv) != 0) {
-            // Error getting metrics, use fallback
-            adv = fallback_adv;
+                int scaled_w_px_otf = scaled_max_x_otf - scaled_min_x_otf;
+                char_w_val_logical = (appCtx->scale_x_factor > 0.01f && scaled_w_px_otf > 0) ? (int)roundf((float)scaled_w_px_otf / appCtx->scale_x_factor) : scaled_w_px_otf;
+
+                // If calculated logical width is 0 or less, but advance is positive, use advance.
+                if (char_w_val_logical <= 0 && final_adv_logical > 0) char_w_val_logical = final_adv_logical;
+                else if (char_w_val_logical <= 0 && scaled_w_px_otf > 0) char_w_val_logical = 1; // Min logical width if surf had width
+
+                // For character height, it's generally safer to use the logical line height.
+                char_h_val_logical = base_logical_h;
+            }
         }
-        // For non-cached characters, assume glyph width equals its advance
-        char_w = adv;
     }
 
-    if (adv <= 0 && codepoint != '\n' && codepoint != '\t') adv = fallback_adv; // Ensure positive advance for printable characters
+    // Ensure minimum positive logical values for drawable characters
+    if (codepoint >= 32) { // Printable character
+        if (final_adv_logical <= 0) final_adv_logical = fallback_adv_logical > 0 ? fallback_adv_logical : 1;
+        if (char_w_val_logical <= 0) char_w_val_logical = final_adv_logical; // Width at least advance
+        if (char_h_val_logical <= 0) char_h_val_logical = base_logical_h;
+    }
 
-    if (out_char_w) *out_char_w = (char_w > 0) ? char_w : adv;
-    if (out_char_h) *out_char_h = (char_h > 0) ? char_h : TTF_FontHeight(appCtx->font); // Always return a valid height
 
-    return adv;
+    if (out_char_w_logical) *out_char_w_logical = char_w_val_logical;
+    if (out_char_h_logical) *out_char_h_logical = char_h_val_logical;
+
+    return final_adv_logical;
 }
 
 

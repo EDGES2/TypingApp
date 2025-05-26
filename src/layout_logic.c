@@ -2,7 +2,7 @@
 #include "text_processing.h" // For TextBlockInfo, get_next_text_block_func, get_codepoint_advance_and_metrics_func
 #include "utf8_utils.h"      // For decode_utf8
 #include "config.h"          // For TEXT_AREA_X, TEXT_AREA_W, CURSOR_TARGET_VIEWPORT_LINE
-
+#include <stdio.h>           // For fprintf if logging is added here (e.g. in AppContext)
 
 void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t final_text_len,
                            size_t current_input_byte_idx, int *out_cursor_abs_y_line_start, int *out_cursor_exact_x_on_line) {
@@ -178,67 +178,99 @@ void UpdateVisibleLine(AppContext *appCtx, int y_coord_for_update_abs) {
     }
 }
 
+// MODIFIED FUNCTION TO PREVENT SCROLL OSCILLATION
 void PerformPredictiveScrollUpdate(AppContext *appCtx,
                                    const char *text_to_type,
                                    size_t final_text_len,
                                    size_t current_input_byte_idx,
                                    int current_logical_cursor_abs_y) {
     if (!appCtx || appCtx->is_paused || appCtx->line_h <= 0) {
-        appCtx->predictive_scroll_triggered_this_input_idx = false; // Reset if not relevant
-        appCtx->y_offset_due_to_prediction_for_current_idx = 0;
+        // Ensure flags are reset if paused or invalid state.
+        // The main loop handles resetting these flags when current_input_byte_idx changes.
+        // If paused, reset flags here to be safe, as unpausing might not trigger input_idx change.
+        if (appCtx && appCtx->is_paused) { // Check appCtx not null before dereferencing
+             appCtx->predictive_scroll_triggered_this_input_idx = false;
+             appCtx->y_offset_due_to_prediction_for_current_idx = 0;
+        }
+        // If not paused but other conditions (like appCtx null or line_h <=0) fail,
+        // UpdateVisibleLine will still be called with current_logical_cursor_abs_y.
+        if (appCtx) { // Only call UpdateVisibleLine if appCtx is valid to prevent crash if appCtx is NULL
+            UpdateVisibleLine(appCtx, current_logical_cursor_abs_y);
+        }
         return;
     }
 
-    // Reset flags before each new check for the current input index
-    // (this is done in the main loop when current_input_byte_idx changes)
-    // Here we only set them if needed
+    int y_coord_for_scroll_update_final;
 
-    int y_coord_for_scroll_update_final = current_logical_cursor_abs_y; // Initially = current cursor position
+    // If predictive scroll was already triggered FOR THIS current_input_byte_idx,
+    // use the y-offset determined at that point to maintain a stable scroll position.
+    // The flags are reset in main.c when current_input_byte_idx changes.
+    if (appCtx->predictive_scroll_triggered_this_input_idx) {
+        y_coord_for_scroll_update_final = current_logical_cursor_abs_y + appCtx->y_offset_due_to_prediction_for_current_idx;
+        // Optional: Log that we are using a stored prediction
+        // if(appCtx->log_file_handle) {
+        //    fprintf(appCtx->log_file_handle, "Maintained predictive scroll: current_Y=%d, stored_offset=%d, final_Y_for_update=%d\n",
+        //            current_logical_cursor_abs_y, appCtx->y_offset_due_to_prediction_for_current_idx, y_coord_for_scroll_update_final);
+        //}
+    } else {
+        // Predictive scroll was not triggered for this input index yet. Attempt to calculate it.
+        y_coord_for_scroll_update_final = current_logical_cursor_abs_y; // Default: scroll to current cursor line
 
-    // Check if predictive scrolling is needed
-    // This happens if the cursor is on the "target focus line" (CURSOR_TARGET_VIEWPORT_LINE)
-    // and the next character to be entered will cause a new line break.
-    int current_abs_line_of_cursor = current_logical_cursor_abs_y / appCtx->line_h;
-    int target_abs_line_for_viewport_focus = appCtx->first_visible_abs_line_num + CURSOR_TARGET_VIEWPORT_LINE;
+        int current_abs_line_of_cursor = current_logical_cursor_abs_y / appCtx->line_h;
 
-    if (current_abs_line_of_cursor == target_abs_line_for_viewport_focus && current_input_byte_idx < final_text_len) {
-        size_t next_char_byte_idx_in_doc = 0; // Byte index of the next character in the document
-        const char* p_next_char_scanner = text_to_type + current_input_byte_idx;
-        const char* temp_scan_ptr_next = p_next_char_scanner;
-        Sint32 cp_next_char = decode_utf8(&temp_scan_ptr_next, text_to_type + final_text_len);
+        // For deciding IF we should predict NOW, we check against the viewport *as if* we didn't predict.
+        // This determines the target line if no prediction were to occur from this point.
+        int first_visible_line_if_no_prediction = (current_logical_cursor_abs_y / appCtx->line_h) - CURSOR_TARGET_VIEWPORT_LINE;
+        if (first_visible_line_if_no_prediction < 0) first_visible_line_if_no_prediction = 0;
 
-        if (cp_next_char > 0 && temp_scan_ptr_next > p_next_char_scanner) { // Successfully decoded next character
-            next_char_byte_idx_in_doc = (size_t)(temp_scan_ptr_next - text_to_type);
-        } else { // No valid next character, or end of text
-            next_char_byte_idx_in_doc = current_input_byte_idx + 1; // Assume advancement by 1 byte
-            if(next_char_byte_idx_in_doc > final_text_len) next_char_byte_idx_in_doc = final_text_len;
-        }
+        int target_abs_line_for_viewport_focus_if_no_prediction = first_visible_line_if_no_prediction + CURSOR_TARGET_VIEWPORT_LINE;
 
-        // If the next character exists and is after the current cursor
-        if (next_char_byte_idx_in_doc <= final_text_len && next_char_byte_idx_in_doc > current_input_byte_idx) {
-            int y_of_next_char_logical, x_of_next_char_logical; // Logical coordinates of the next character
-            CalculateCursorLayout(appCtx, text_to_type, final_text_len, next_char_byte_idx_in_doc,
-                                  &y_of_next_char_logical, &x_of_next_char_logical);
+        // Condition to check if the cursor is currently on the line that would trigger a lookahead
+        // based on a non-predictively scrolled viewport.
+        if (current_abs_line_of_cursor == target_abs_line_for_viewport_focus_if_no_prediction &&
+            current_input_byte_idx < final_text_len) {
 
-            // If the next character ends up on a new logical line
-            if (y_of_next_char_logical > current_logical_cursor_abs_y) {
-                // Check if this new line will require scrolling
-                int potential_new_first_visible_abs_line = (y_of_next_char_logical / appCtx->line_h) - CURSOR_TARGET_VIEWPORT_LINE;
-                if (potential_new_first_visible_abs_line < 0) potential_new_first_visible_abs_line = 0;
+            size_t next_char_byte_idx_in_doc = 0;
+            const char* p_next_char_scanner = text_to_type + current_input_byte_idx;
+            const char* temp_scan_ptr_next = p_next_char_scanner;
+            Sint32 cp_next_char = decode_utf8(&temp_scan_ptr_next, text_to_type + final_text_len);
 
-                if (potential_new_first_visible_abs_line > appCtx->first_visible_abs_line_num) {
-                    // Yes, predictive scrolling is needed
-                    y_coord_for_scroll_update_final = y_of_next_char_logical; // Scroll to the position of the next character
-                    appCtx->y_offset_due_to_prediction_for_current_idx = y_of_next_char_logical - current_logical_cursor_abs_y;
-                    appCtx->predictive_scroll_triggered_this_input_idx = true;
+            if (cp_next_char > 0 && temp_scan_ptr_next > p_next_char_scanner) {
+                next_char_byte_idx_in_doc = (size_t)(temp_scan_ptr_next - text_to_type);
+            } else {
+                next_char_byte_idx_in_doc = current_input_byte_idx + 1;
+                if(next_char_byte_idx_in_doc > final_text_len) next_char_byte_idx_in_doc = final_text_len;
+            }
+
+            if (next_char_byte_idx_in_doc <= final_text_len && next_char_byte_idx_in_doc > current_input_byte_idx) {
+                int y_of_next_char_logical, x_of_next_char_logical;
+                CalculateCursorLayout(appCtx, text_to_type, final_text_len, next_char_byte_idx_in_doc,
+                                      &y_of_next_char_logical, &x_of_next_char_logical);
+
+                if (y_of_next_char_logical > current_logical_cursor_abs_y) { // Next character is on a new logical line
+                    // Calculate where the viewport *would* be if centered on this y_of_next_char_logical
+                    int potential_new_first_visible_abs_line_if_predict = (y_of_next_char_logical / appCtx->line_h) - CURSOR_TARGET_VIEWPORT_LINE;
+                    if (potential_new_first_visible_abs_line_if_predict < 0) potential_new_first_visible_abs_line_if_predict = 0;
+
+                    // Only trigger predictive scroll if this new viewport start is actually different (further down)
+                    // than the viewport start if we just scrolled to the current cursor normally.
+                    if (potential_new_first_visible_abs_line_if_predict > first_visible_line_if_no_prediction) {
+                        y_coord_for_scroll_update_final = y_of_next_char_logical;
+                        appCtx->y_offset_due_to_prediction_for_current_idx = y_of_next_char_logical - current_logical_cursor_abs_y;
+                        appCtx->predictive_scroll_triggered_this_input_idx = true;
+                        if(appCtx->log_file_handle) { // Optional: Log when predictive scroll is activated
+                             fprintf(appCtx->log_file_handle, "Predictive scroll ACTIVATED: next_char_Y_abs=%d, current_cursor_Y_abs=%d, new_offset_Y=%d. Target viewport line for this decision: %d\n",
+                                 y_of_next_char_logical, current_logical_cursor_abs_y, appCtx->y_offset_due_to_prediction_for_current_idx, target_abs_line_for_viewport_focus_if_no_prediction);
+                        }
+                    }
                 }
             }
         }
+        // If predictive scroll was not triggered in this pass,
+        // y_coord_for_scroll_update_final remains current_logical_cursor_abs_y (its initial value in this 'else' block),
+        // and appCtx->predictive_scroll_triggered_this_input_idx remains false
+        // (it was reset by main loop on input change, or was already false).
     }
-    // If predictive scroll did not trigger, y_coord_for_scroll_update_final remains current_logical_cursor_abs_y
-    // and flags predictive_scroll_triggered_this_input_idx / y_offset_due_to_prediction_for_current_idx
-    // will be reset in the main loop on the next input.
 
-    // Update the visible line based on the calculated y_coord_for_scroll_update_final
     UpdateVisibleLine(appCtx, y_coord_for_scroll_update_final);
 }

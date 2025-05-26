@@ -4,7 +4,8 @@
 // --- Application Constants ---
 #define WINDOW_W     800
 #define WINDOW_H     200
-#define FONT_SIZE    14
+#define FONT_SIZE    28
+#define UI_FONT_SIZE 30
 #define MAX_TEXT_LEN (5 * 1024 * 1024) // Maximum length of raw text
 
 #ifndef TEXT_FILE_PATH_BASENAME

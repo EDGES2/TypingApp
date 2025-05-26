@@ -11,17 +11,20 @@ typedef struct {
     SDL_Window *win;
     SDL_Renderer *ren;
     TTF_Font *font;
+    TTF_Font *ui_font;
     SDL_Color palette[N_COLORS];
-    int line_h; // Height of a single text line
+    int line_h; // Logical height of a single text line
+    int ui_line_h;
 
     // Glyph cache for ASCII characters (32-126)
+    // Textures are hi-res, metrics are logical
     SDL_Texture *glyph_tex_cache[N_COLORS][128];
-    int glyph_adv_cache[128]; // Advance width (advance)
-    int glyph_w_cache[N_COLORS][128]; // Glyph width
-    int glyph_h_cache[N_COLORS][128]; // Glyph height
+    int glyph_adv_cache[128]; // Logical advance width (advance)
+    int glyph_w_cache[N_COLORS][128]; // Logical glyph width
+    int glyph_h_cache[N_COLORS][128]; // Logical glyph height
 
-    int space_advance_width; // Advance width for space
-    int tab_width_pixels;    // Tab width in pixels
+    int space_advance_width; // Logical advance width for space
+    int tab_width_pixels;    // Logical tab width in pixels
 
     // Program state
     bool typing_started;
@@ -42,6 +45,10 @@ typedef struct {
     int first_visible_abs_line_num;
     bool predictive_scroll_triggered_this_input_idx;
     int y_offset_due_to_prediction_for_current_idx;
+
+    // HiDPI scaling factors
+    float scale_x_factor;
+    float scale_y_factor;
 
 } AppContext;
 
