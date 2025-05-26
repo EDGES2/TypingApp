@@ -84,7 +84,7 @@ The project is organized into several directories:
     portability.
 * `CMakeLists.txt`: The main CMake build script that defines how the project is compiled and packaged.
 * `README.md`: (Presumably) General information about the project.
-* `documentation.txt`: This file.
+* `documentation.md`: This file.
 
 5. Module Descriptions
 ----------------------
