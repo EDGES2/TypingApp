@@ -123,37 +123,6 @@ else() # macOS, Linux, and other PkgConfig-based systems
     target_link_libraries(${PROJECT_NAME} PRIVATE ${SDL2_LIBRARIES} ${SDL2_TTF_LIBRARIES})
 endif()
 
-# --- Asset/Resource Handling (text.txt) ---
-# Оновлюємо шлях до text.txt # [cite: 13]
-set(TEXT_FILE_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/text.txt") # [cite: 13]
-
-if(EXISTS "${TEXT_FILE_SOURCE}")
-    if(APPLE)
-        # macOS bundle resource handling (part of the larger macOS section below)
-    elseif(WIN32)
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${TEXT_FILE_SOURCE}"
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/text.txt"
-                COMMENT "Copying text.txt to build directory for Windows" # [cite: 14]
-        )
-        # Для інсталятора CPack
-        install(FILES "${TEXT_FILE_SOURCE}" DESTINATION "." COMPONENT Runtime)
-    else() # Linux, etc.
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${TEXT_FILE_SOURCE}" # [cite: 15]
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/text.txt" # [cite: 15]
-                COMMENT "Copying text.txt to build directory"
-        )
-        # Можливо, також потрібно install для Linux, якщо ви плануєте створювати пакети
-        # install(FILES "${TEXT_FILE_SOURCE}" DESTINATION "bin" COMPONENT Runtime) # Приклад
-    endif()
-else()
-    message(WARNING "Default text file not found at ${TEXT_FILE_SOURCE}. Application might start with placeholder text.") # [cite: 16]
-endif()
-
-
 # ==========================================================================================
 # --- macOS Specific Bundling and Packaging ---
 # ==========================================================================================
@@ -635,7 +604,7 @@ if(WIN32)
 
     # Target to prepare the staging directory
     set(STAGING_PREP_COMMAND_LIST "")
-    list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove -f "${WIN_FINAL_ZIP_FILENAME}")
+    list(APPEND STAGING_PREP_C-OMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove -f "${WIN_FINAL_ZIP_FILENAME}")
     list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E remove_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}")
     list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E make_directory "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin") # Створюємо bin в staging
     # Копіюємо .exe в staging/bin # [cite: 80]
@@ -646,10 +615,6 @@ if(WIN32)
         list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE_DIR:${PROJECT_NAME}>/${dll_to_zip_name}" "${WIN_ZIP_STAGING_DIR_FULLPATH}/bin/")
     endforeach()
 
-    # Копіюємо text.txt (з assets) в корінь staging
-    if(EXISTS "${TEXT_FILE_SOURCE}") # [cite: 80]
-        list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TEXT_FILE_SOURCE}" "${WIN_ZIP_STAGING_DIR_FULLPATH}/text.txt")
-    endif()
     # Копіюємо appicon.ico (з assets) в корінь staging
     if(EXISTS "${WINDOWS_APP_ICON_ICO}") # Використовуємо вже визначену змінну # [cite: 81]
         list(APPEND STAGING_PREP_COMMAND_LIST COMMAND ${CMAKE_COMMAND} -E copy_if_different "${WINDOWS_APP_ICON_ICO}" "${WIN_ZIP_STAGING_DIR_FULLPATH}/appicon.ico")
