@@ -32,7 +32,7 @@
 
 // Set to 1 to enable logging to a file.
 // The log file will be created in the user's settings directory.
-#define ENABLE_GAME_LOGS 1
+#define ENABLE_GAME_LOGS 0
 
 // Colors
 enum {
