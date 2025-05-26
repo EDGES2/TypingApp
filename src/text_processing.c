@@ -1,11 +1,11 @@
 #include "text_processing.h"
-#include "utf8_utils.h" // Для decode_utf8
-#include "config.h"     // Для FONT_SIZE, TAB_SIZE_IN_SPACES, TEXT_AREA_X
-#include <string.h>     // Для memcpy, strerror
-#include <stdlib.h>     // Для malloc, realloc, free
-#include <errno.h>      // Для errno
+#include "utf8_utils.h" // For decode_utf8
+#include "config.h"     // For FONT_SIZE, TAB_SIZE_IN_SPACES, TEXT_AREA_X
+#include <string.h>     // For memcpy, strerror
+#include <stdlib.h>     // For malloc, realloc, free
+#include <errno.h>      // For errno
 
-// Допоміжна функція для логування, якщо appCtx->log_file_handle доступний
+// Helper function for logging if appCtx->log_file_handle is available
 static void log_message(AppContext *appCtx, const char* message) {
     if (appCtx && appCtx->log_file_handle && message) {
         fprintf(appCtx->log_file_handle, "%s\n", message);
@@ -37,8 +37,8 @@ char* PreprocessText(AppContext *appCtx, const char* raw_text_buffer, size_t raw
         return empty_str;
     }
 
-    // Перший прохід: нормалізація переносів рядків, заміна деяких символів
-    size_t temp_buffer_capacity = raw_text_len * 2 + 10; // Запас для замін
+    // First pass: normalize line breaks, replace some characters
+    size_t temp_buffer_capacity = raw_text_len * 2 + 10; // Margin for replacements
     char *temp_buffer = (char*)malloc(temp_buffer_capacity);
     if (!temp_buffer) {
         log_message_format(appCtx, "Error: Failed to allocate temporary buffer in PreprocessText: %s", strerror(errno));
@@ -47,13 +47,13 @@ char* PreprocessText(AppContext *appCtx, const char* raw_text_buffer, size_t raw
         return NULL;
     }
 
-    size_t temp_w_idx = 0; // Індекс запису в temp_buffer
+    size_t temp_w_idx = 0; // Write index in temp_buffer
     const char* p_read = raw_text_buffer;
     const char* p_read_end = raw_text_buffer + raw_text_len;
 
     while (p_read < p_read_end) {
-        // Перевірка на переповнення буфера перед записом
-        if (temp_w_idx + 4 >= temp_buffer_capacity) { // +4 для найдовшої можливої заміни (наприклад, UTF-8 символу)
+        // Check for buffer overflow before writing
+        if (temp_w_idx + 4 >= temp_buffer_capacity) { // +4 for the longest possible replacement (e.g., a UTF-8 character)
             temp_buffer_capacity = temp_buffer_capacity * 2 + 4;
             char *new_temp_buffer = (char *)realloc(temp_buffer, temp_buffer_capacity);
             if (!new_temp_buffer) {
@@ -66,18 +66,18 @@ char* PreprocessText(AppContext *appCtx, const char* raw_text_buffer, size_t raw
             temp_buffer = new_temp_buffer;
         }
 
-        // Обробка \r\n та \r
+        // Handling \r\n and \r
         if (*p_read == '\r') {
             p_read++;
             if (p_read < p_read_end && *p_read == '\n') { // \r\n
                 p_read++;
             }
-            // Замінюємо на єдиний \n
+            // Replace with a single \n
             temp_buffer[temp_w_idx++] = '\n';
             continue;
         }
 
-        // Заміна "--" на em-dash (—) U+2014 (E2 80 94)
+        // Replace "--" with em-dash (—) U+2014 (E2 80 94)
         if (*p_read == '-' && (p_read + 1 < p_read_end) && *(p_read + 1) == '-') {
             temp_buffer[temp_w_idx++] = (char)0xE2;
             temp_buffer[temp_w_idx++] = (char)0x80;
@@ -90,32 +90,32 @@ char* PreprocessText(AppContext *appCtx, const char* raw_text_buffer, size_t raw
         Sint32 cp = decode_utf8(&p_read, p_read_end);
         size_t orig_len = (size_t)(p_read - char_start);
 
-        if (cp <= 0) { // Помилка декодування або кінець
-            if (orig_len == 0 && p_read < p_read_end) { // Якщо decode_utf8 не зміг просунутися, робимо це вручну
+        if (cp <= 0) { // Decoding error or end
+            if (orig_len == 0 && p_read < p_read_end) { // If decode_utf8 couldn't advance, do it manually
                 p_read++;
             }
-            continue; // Пропускаємо невалідні символи
+            continue; // Skip invalid characters
         }
 
-        // Заміни типографіки
-        if (cp == 0x2014) { /* em dash — */ temp_buffer[temp_w_idx++] = (char)0xE2; temp_buffer[temp_w_idx++] = (char)0x80; temp_buffer[temp_w_idx++] = (char)0x93; /* en dash – */ continue; } // Заміна em на en dash для консистентності
+        // Typographic replacements
+        if (cp == 0x2014) { /* em dash — */ temp_buffer[temp_w_idx++] = (char)0xE2; temp_buffer[temp_w_idx++] = (char)0x80; temp_buffer[temp_w_idx++] = (char)0x93; /* en dash – */ continue; } // Replace em with en dash for consistency
         if (cp == 0x2026) { /* ellipsis … */ temp_buffer[temp_w_idx++] = '.'; temp_buffer[temp_w_idx++] = '.'; temp_buffer[temp_w_idx++] = '.'; continue; }
         if (cp == 0x2018 || cp == 0x2019 || cp == 0x201C || cp == 0x201D) { /* ’ ‘ “ ” */ temp_buffer[temp_w_idx++] = '\''; continue; }
 
 
-        // Копіювання оригінального символу (або його UTF-8 послідовності)
+        // Copying the original character (or its UTF-8 sequence)
         if (temp_w_idx + orig_len <= temp_buffer_capacity) {
             memcpy(temp_buffer + temp_w_idx, char_start, orig_len);
             temp_w_idx += orig_len;
         } else {
             log_message(appCtx, "Error: Buffer overflow in PreprocessText Pass 1, character copy.");
-            break; // Вихід з циклу, якщо буфер переповнено
+            break; // Exit loop if buffer is full
         }
     }
-    temp_buffer[temp_w_idx] = '\0'; // Нуль-термінація
+    temp_buffer[temp_w_idx] = '\0'; // Null-termination
 
-    // Другий прохід: видалення зайвих пробілів та переносів рядків
-    char *processed_text = (char*)malloc(temp_w_idx + 1); // Буфер для фінального тексту
+    // Second pass: remove extra spaces and line breaks
+    char *processed_text = (char*)malloc(temp_w_idx + 1); // Buffer for the final text
     if (!processed_text) {
         log_message_format(appCtx, "Error: Failed to allocate processed_text in PreprocessText (Pass 2): %s", strerror(errno));
         perror("Failed to allocate processed_text in PreprocessText (Pass 2)");
@@ -124,15 +124,15 @@ char* PreprocessText(AppContext *appCtx, const char* raw_text_buffer, size_t raw
         return NULL;
     }
 
-    size_t final_pt_idx = 0; // Індекс запису в processed_text
+    size_t final_pt_idx = 0; // Write index in processed_text
     const char* p2_read = temp_buffer;
     const char* p2_read_end = temp_buffer + temp_w_idx;
 
     int consecutive_newlines = 0;
-    bool last_char_output_was_space = true; // Починаємо так, ніби перед текстом був пробіл (щоб не додавати пробіл на початку)
-    bool content_has_started = false; // Чи почався вже значущий контент (не пробіли на початку)
+    bool last_char_output_was_space = true; // Start as if there was a space before the text (to avoid adding a space at the beginning)
+    bool content_has_started = false; // Has significant content started already (not spaces at the beginning)
 
-    // Пропускаємо початкові пробіли/переноси
+    // Skip leading spaces/line breaks
     const char* p2_scan_lead = p2_read;
     while(p2_scan_lead < p2_read_end) {
         const char* peek_ptr_ws = p2_scan_lead;
@@ -151,90 +151,90 @@ char* PreprocessText(AppContext *appCtx, const char* raw_text_buffer, size_t raw
         Sint32 cp2 = decode_utf8(&p2_read, p2_read_end);
         size_t char_len_pass2 = (size_t)(p2_read - char_start_pass2_original);
 
-        if(cp2 <= 0) { // Пропускаємо невалідні або нульові символи
-            if (char_len_pass2 == 0 && p2_read < p2_read_end) p2_read++; // Ручне просування, якщо decode_utf8 не зміг
+        if(cp2 <= 0) { // Skip invalid or null characters
+            if (char_len_pass2 == 0 && p2_read < p2_read_end) p2_read++; // Manual advancement if decode_utf8 failed
             continue;
         }
 
         if (cp2 == '\n') {
             consecutive_newlines++;
-        } else { // Не перенос рядка
-            if (consecutive_newlines > 0) { // Були переноси перед цим символом
+        } else { // Not a line break
+            if (consecutive_newlines > 0) { // There were line breaks before this character
                 if (content_has_started) {
-                    // Видаляємо пробіл перед переносом, якщо він був
+                    // Remove space before the line break if it was there
                     if (final_pt_idx > 0 && processed_text[final_pt_idx - 1] == ' ') {
                         final_pt_idx--;
                     }
-                    if (consecutive_newlines >= 2) { // Два або більше переноси -> один перенос (новий абзац)
-                         if (final_pt_idx == 0 || (final_pt_idx > 0 && processed_text[final_pt_idx - 1] != '\n')) { // Уникаємо подвійних переносів
+                    if (consecutive_newlines >= 2) { // Two or more line breaks -> one line break (new paragraph)
+                         if (final_pt_idx == 0 || (final_pt_idx > 0 && processed_text[final_pt_idx - 1] != '\n')) { // Avoid double line breaks
                             if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = '\n'; else break;
                          }
-                    } else { // Один перенос -> пробіл (якщо текст не закінчується пробілом/переносом)
+                    } else { // One line break -> space (if text doesn't end with a space/line break)
                         if (final_pt_idx > 0 && processed_text[final_pt_idx - 1] != ' ' && processed_text[final_pt_idx - 1] != '\n') {
                             if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = ' '; else break;
-                        } else if (final_pt_idx == 0 && content_has_started ) { // Якщо це перший символ контенту після переносів
-                            // не додаємо пробіл на початку
+                        } else if (final_pt_idx == 0 && content_has_started ) { // If this is the first content character after line breaks
+                            // do not add a space at the beginning
                         }
                     }
                 }
-                last_char_output_was_space = true; // Після обробки переносів, вважаємо, що був пробіл
+                last_char_output_was_space = true; // After processing line breaks, assume there was a space
             }
             consecutive_newlines = 0;
 
-            if (cp2 == ' ' || cp2 == '\t') { // Поточний символ - пробіл або таб
-                if (content_has_started && !last_char_output_was_space) { // Додаємо один пробіл, якщо попередній не був пробілом
+            if (cp2 == ' ' || cp2 == '\t') { // Current character is a space or tab
+                if (content_has_started && !last_char_output_was_space) { // Add one space if the previous one was not a space
                     if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = ' '; else break;
                 }
                 last_char_output_was_space = true;
-            } else { // Поточний символ - не пробіл/таб/перенос
-                // Копіюємо символ
-                if (final_pt_idx + char_len_pass2 <= temp_w_idx) { // Перевірка на переповнення
+            } else { // Current character is not a space/tab/line break
+                // Copy the character
+                if (final_pt_idx + char_len_pass2 <= temp_w_idx) { // Check for overflow
                     memcpy(processed_text + final_pt_idx, char_start_pass2_original, char_len_pass2);
                     final_pt_idx += char_len_pass2;
                 } else break;
                 last_char_output_was_space = false;
-                content_has_started = true; // Позначка, що текст почався
+                content_has_started = true; // Mark that text has started
             }
         }
     }
 
-    // Обробка переносів в кінці тексту
+    // Handling line breaks at the end of the text
     if (consecutive_newlines > 0 && content_has_started) {
-        if (final_pt_idx > 0 && processed_text[final_pt_idx - 1] == ' ') final_pt_idx--; // Видаляємо пробіл перед фінальним переносом
-        if (consecutive_newlines >= 2) { // Якщо текст закінчувався >=2 переносами
+        if (final_pt_idx > 0 && processed_text[final_pt_idx - 1] == ' ') final_pt_idx--; // Remove space before the final line break
+        if (consecutive_newlines >= 2) { // If the text ended with >=2 line breaks
              if (final_pt_idx == 0 || (final_pt_idx > 0 && processed_text[final_pt_idx - 1] != '\n')) {
                 if (final_pt_idx < temp_w_idx) processed_text[final_pt_idx++] = '\n';
              }
         }
-        // Якщо був один перенос в кінці, він ігнорується (як і кінцеві пробіли нижче)
+        // If there was one line break at the end, it's ignored (like trailing spaces below)
     }
 
-    // Видалення кінцевих пробілів та переносів рядків
+    // Remove trailing spaces and line breaks
     while (final_pt_idx > 0 && (processed_text[final_pt_idx-1] == ' ' || processed_text[final_pt_idx-1] == '\n')) {
         final_pt_idx--;
     }
     processed_text[final_pt_idx] = '\0';
     *out_final_text_len = final_pt_idx;
 
-    free(temp_buffer); // Звільняємо тимчасовий буфер
+    free(temp_buffer); // Free the temporary buffer
 
-    // Оптимізація розміру фінального буфера
+    // Optimize the size of the final buffer
     char* final_text = (char*)realloc(processed_text, final_pt_idx + 1);
-    if (!final_text && final_pt_idx > 0) { // Якщо realloc не вдався, але є дані
+    if (!final_text && final_pt_idx > 0) { // If realloc failed, but there is data
         log_message_format(appCtx, "Warning: realloc failed for final_text, returning original buffer. Length: %zu", final_pt_idx);
-        return processed_text; // Повертаємо попередній буфер
+        return processed_text; // Return the previous buffer
     }
-    if (!final_text && final_pt_idx == 0 && processed_text != NULL) { // Якщо realloc не вдався і текст порожній
-        free(processed_text); // processed_text точно існує, якщо ми тут
-        final_text = (char*)malloc(1); // Створюємо порожній рядок
+    if (!final_text && final_pt_idx == 0 && processed_text != NULL) { // If realloc failed and the text is empty
+        free(processed_text); // processed_text definitely exists if we are here
+        final_text = (char*)malloc(1); // Create an empty string
         if(final_text) final_text[0] = '\0';
         else { log_message(appCtx, "Error: malloc for empty final_text failed after realloc failure."); }
         return final_text;
     }
-    // Якщо final_text == NULL і processed_text також був NULL (малоймовірно, але можливо, якщо malloc для processed_text не вдався)
-    // або якщо realloc повернув NULL для порожнього рядка (final_pt_idx == 0)
-    // Повертаємо final_text (який може бути NULL, або вказівником на новий буфер, або тим самим processed_text)
-    return final_text ? final_text : processed_text; // realloc може повернути той самий вказівник
+    // If final_text == NULL and processed_text was also NULL (unlikely, but possible if malloc for processed_text failed)
+    // or if realloc returned NULL for an empty string (final_pt_idx == 0)
+    // Return final_text (which can be NULL, or a pointer to a new buffer, or the same processed_text)
+    return final_text ? final_text : processed_text; // realloc might return the same pointer
 }
 
 
@@ -245,35 +245,35 @@ int get_codepoint_advance_and_metrics_func(AppContext *appCtx, Uint32 codepoint,
 
     if (!appCtx || !appCtx->font) {
         if (out_char_w) *out_char_w = fallback_adv;
-        if (out_char_h) *out_char_h = FONT_SIZE; // Використовуємо FONT_SIZE як резерв
+        if (out_char_h) *out_char_h = FONT_SIZE; // Use FONT_SIZE as a fallback
         return fallback_adv;
     }
 
-    char_h = TTF_FontHeight(appCtx->font); // Базова висота
+    char_h = TTF_FontHeight(appCtx->font); // Base height
 
-    if (codepoint < 128 && codepoint >= 32) { // Для ASCII символів з кешу
+    if (codepoint < 128 && codepoint >= 32) { // For ASCII characters from cache
         adv = appCtx->glyph_adv_cache[codepoint];
-        // Беремо розміри з кешу для COL_TEXT, оскільки вони не залежать від кольору для геометрії
+        // Take dimensions from cache for COL_TEXT, as they don't depend on color for geometry
         if (appCtx->glyph_w_cache[COL_TEXT][codepoint] > 0) char_w = appCtx->glyph_w_cache[COL_TEXT][codepoint];
-        else char_w = adv; // Якщо ширина в кеші 0, використовуємо advance
+        else char_w = adv; // If width in cache is 0, use advance
 
         if (appCtx->glyph_h_cache[COL_TEXT][codepoint] > 0) char_h = appCtx->glyph_h_cache[COL_TEXT][codepoint];
-        // else char_h залишається TTF_FontHeight(appCtx->font)
+        // else char_h remains TTF_FontHeight(appCtx->font)
 
-        if (adv == 0 && fallback_adv > 0) adv = fallback_adv; // Якщо advance з кешу 0
-    } else { // Для не-ASCII або контрольних символів (якщо вони взагалі передаються сюди)
+        if (adv == 0 && fallback_adv > 0) adv = fallback_adv; // If advance from cache is 0
+    } else { // For non-ASCII or control characters (if they are passed here at all)
         if (TTF_GlyphMetrics32(appCtx->font, codepoint, NULL, NULL, NULL, NULL, &adv) != 0) {
-            // Помилка отримання метрик, використовуємо fallback
+            // Error getting metrics, use fallback
             adv = fallback_adv;
         }
-        // Для некешованих символів, припускаємо, що ширина гліфа дорівнює його просуванню
+        // For non-cached characters, assume glyph width equals its advance
         char_w = adv;
     }
 
-    if (adv <= 0 && codepoint != '\n' && codepoint != '\t') adv = fallback_adv; // Забезпечуємо позитивне просування для друкованих символів
+    if (adv <= 0 && codepoint != '\n' && codepoint != '\t') adv = fallback_adv; // Ensure positive advance for printable characters
 
     if (out_char_w) *out_char_w = (char_w > 0) ? char_w : adv;
-    if (out_char_h) *out_char_h = (char_h > 0) ? char_h : TTF_FontHeight(appCtx->font); // Завжди повертаємо валідну висоту
+    if (out_char_h) *out_char_h = (char_h > 0) ? char_h : TTF_FontHeight(appCtx->font); // Always return a valid height
 
     return adv;
 }
@@ -282,64 +282,64 @@ int get_codepoint_advance_and_metrics_func(AppContext *appCtx, Uint32 codepoint,
 TextBlockInfo get_next_text_block_func(AppContext *appCtx, const char **text_parser_ptr_ref, const char *text_end, int current_pen_x_for_tab_calc) {
     TextBlockInfo block = {0};
     if (!text_parser_ptr_ref || !*text_parser_ptr_ref || *text_parser_ptr_ref >= text_end || !appCtx || !appCtx->font) {
-        return block; // Повертаємо порожній блок
+        return block; // Return an empty block
     }
 
     block.start_ptr = *text_parser_ptr_ref;
-    const char *p_initial_for_block = *text_parser_ptr_ref; // Початкова позиція для цього виклику
-    const char *temp_scanner = *text_parser_ptr_ref; // Тимчасовий сканер для першого символу
+    const char *p_initial_for_block = *text_parser_ptr_ref; // Initial position for this call
+    const char *temp_scanner = *text_parser_ptr_ref; // Temporary scanner for the first character
 
     Sint32 first_cp_in_block = decode_utf8(&temp_scanner, text_end);
 
-    if (first_cp_in_block <= 0) { // Помилка або кінець рядка на самому початку
-        // Просуваємо основний вказівник, якщо temp_scanner просунувся або якщо це просто невалідний байт
+    if (first_cp_in_block <= 0) { // Error or end of line at the very beginning
+        // Advance the main pointer if temp_scanner advanced or if it's just an invalid byte
         if (temp_scanner > *text_parser_ptr_ref) {
             *text_parser_ptr_ref = temp_scanner;
-        } else if (*text_parser_ptr_ref < text_end) { // Якщо не просунувся, але не кінець, пропускаємо один байт
+        } else if (*text_parser_ptr_ref < text_end) { // If it didn't advance, but not the end, skip one byte
             (*text_parser_ptr_ref)++;
         }
         block.num_bytes = (size_t)(*text_parser_ptr_ref - block.start_ptr);
-        return block; // Повертаємо блок з 0 або 1 байтом (для невалідного)
+        return block; // Return a block with 0 or 1 byte (for an invalid one)
     }
 
-    // Обробка спеціальних символів
+    // Handling special characters
     if (first_cp_in_block == '\n') {
         block.is_newline = true;
-        decode_utf8(text_parser_ptr_ref, text_end); // Просуваємо основний вказівник
+        decode_utf8(text_parser_ptr_ref, text_end); // Advance the main pointer
         block.pixel_width = 0;
     } else if (first_cp_in_block == '\t') {
         block.is_tab = true;
-        decode_utf8(text_parser_ptr_ref, text_end); // Просуваємо основний вказівник
+        decode_utf8(text_parser_ptr_ref, text_end); // Advance the main pointer
         if (appCtx->tab_width_pixels > 0) {
             int offset_in_line = current_pen_x_for_tab_calc - TEXT_AREA_X;
             block.pixel_width = appCtx->tab_width_pixels - (offset_in_line % appCtx->tab_width_pixels);
-            // Якщо курсор точно на позиції табуляції, ширина має бути повною шириною табуляції
+            // If the cursor is exactly at a tab position, the width should be the full tab width
             if (block.pixel_width == 0 && offset_in_line >=0) block.pixel_width = appCtx->tab_width_pixels;
-            if (block.pixel_width <=0) block.pixel_width = appCtx->tab_width_pixels; // Забезпечення позитивної ширини
+            if (block.pixel_width <=0) block.pixel_width = appCtx->tab_width_pixels; // Ensure positive width
         } else {
-             // Резервна логіка, якщо tab_width_pixels не ініціалізовано (малоймовірно)
+             // Fallback logic if tab_width_pixels is not initialized (unlikely)
             block.pixel_width = appCtx->space_advance_width * TAB_SIZE_IN_SPACES;
         }
     } else {
-        // Обробка слів або послідовностей пробілів
+        // Handling words or sequences of spaces
         bool first_char_was_space = (first_cp_in_block == ' ');
-        block.is_word = !first_char_was_space; // Якщо не пробіл, то слово
+        block.is_word = !first_char_was_space; // If not a space, then it's a word
 
-        // *text_parser_ptr_ref тут все ще на початку блоку. Починаємо його просувати.
+        // *text_parser_ptr_ref is still at the beginning of the block here. Start advancing it.
         while(*text_parser_ptr_ref < text_end) {
-            const char* peek_ptr = *text_parser_ptr_ref; // "Заглядаємо" вперед
+            const char* peek_ptr = *text_parser_ptr_ref; // "Peek" ahead
             Sint32 cp = decode_utf8(&peek_ptr, text_end);
 
-            if (cp <= 0 || cp == '\n' || cp == '\t') { // Кінець блоку при помилці, \n або \t
+            if (cp <= 0 || cp == '\n' || cp == '\t') { // End of block on error, \n or \t
                 break;
             }
 
             bool current_char_is_space = (cp == ' ');
-            if (current_char_is_space != first_char_was_space) { // Зміна типу символу (слово/пробіл)
+            if (current_char_is_space != first_char_was_space) { // Change of character type (word/space)
                 break;
             }
 
-            // Якщо все добре, просуваємо основний вказівник та додаємо ширину
+            // If all is well, advance the main pointer and add the width
             *text_parser_ptr_ref = peek_ptr;
             block.pixel_width += get_codepoint_advance_and_metrics_func(appCtx, (Uint32)cp, appCtx->space_advance_width, NULL, NULL);
         }

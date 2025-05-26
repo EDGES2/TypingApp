@@ -1,12 +1,12 @@
 #include "file_paths.h"
-#include "config.h" // Для TEXT_FILE_PATH_BASENAME, STATS_FILE_BASENAME, COMPANY_NAME_STR, PROJECT_NAME_STR, MAX_TEXT_LEN
-#include <SDL2/SDL_filesystem.h> // Для SDL_GetPrefPath, SDL_GetBasePath
-#include <stdio.h>  // Для snprintf, fopen, fclose, fread, fwrite, fseek, ftell, perror
-#include <string.h> // Для strcpy, strncpy, strlen, strerror, strdup
-#include <stdlib.h> // Для malloc, free
-#include <errno.h>  // Для errno
+#include "config.h" // For TEXT_FILE_PATH_BASENAME, STATS_FILE_BASENAME, COMPANY_NAME_STR, PROJECT_NAME_STR, MAX_TEXT_LEN
+#include <SDL2/SDL_filesystem.h> // For SDL_GetPrefPath, SDL_GetBasePath
+#include <stdio.h>  // For snprintf, fopen, fclose, fread, fwrite, fseek, ftell, perror
+#include <string.h> // For strcpy, strncpy, strlen, strerror, strdup
+#include <stdlib.h> // For malloc, free
+#include <errno.h>  // For errno
 
-// Допоміжна функція для логування
+// Helper function for logging
 static void log_paths_message_format(AppContext *appCtx, const char* format, ...) {
     if (appCtx && appCtx->log_file_handle && format) {
         va_list args;
@@ -25,7 +25,7 @@ void InitializeFilePaths(AppContext *appCtx, FilePaths *paths) {
     paths->actual_stats_file_path[0] = '\0';
     paths->default_text_file_in_bundle_path[0] = '\0';
 
-    // Визначення шляхів для файлів користувача (text.txt, stats.txt)
+    // Determining paths for user files (text.txt, stats.txt)
     char* pref_path_str = SDL_GetPrefPath(COMPANY_NAME_STR, PROJECT_NAME_STR);
     if (pref_path_str) {
         snprintf(paths->actual_text_file_path, MAX_PATH_LEN -1, "%s%s", pref_path_str, TEXT_FILE_PATH_BASENAME);
@@ -56,34 +56,34 @@ void InitializeFilePaths(AppContext *appCtx, FilePaths *paths) {
         log_paths_message_format(appCtx, "Fallback user stats file path: %s", paths->actual_stats_file_path);
     }
 
-    // Визначення шляху до стандартного text.txt у пакеті/каталозі програми
+    // Determining the path to the default text.txt in the application package/directory
     char* bundle_resources_path_base = SDL_GetBasePath();
     if (bundle_resources_path_base) {
         #if defined(__APPLE__)
-            // У macOS бандлі ресурси знаходяться в MyCoolApp.app/Contents/Resources/
+            // In a macOS bundle, resources are located in MyCoolApp.app/Contents/Resources/
             snprintf(paths->default_text_file_in_bundle_path, MAX_PATH_LEN -1, "%s../Resources/%s", bundle_resources_path_base, TEXT_FILE_PATH_BASENAME);
         #elif defined(_WIN32)
-            // Для Windows, якщо встановлено, може бути на рівень вище, або поруч з .exe для локальних збірок
-            snprintf(paths->default_text_file_in_bundle_path, MAX_PATH_LEN -1, "%s../%s", bundle_resources_path_base, TEXT_FILE_PATH_BASENAME); // Спроба для інсталяції
+            // For Windows, if installed, it might be one level up, or next to the .exe for local builds
+            snprintf(paths->default_text_file_in_bundle_path, MAX_PATH_LEN -1, "%s../%s", bundle_resources_path_base, TEXT_FILE_PATH_BASENAME); // Attempt for installation
             FILE *test_f = fopen(paths->default_text_file_in_bundle_path, "rb");
             if (test_f) {
                 fclose(test_f);
                 log_paths_message_format(appCtx, "INFO: Found default text.txt at potential installed location: %s", paths->default_text_file_in_bundle_path);
-            } else { // Якщо не знайдено, пробуємо поруч з .exe (для розробки/портативної версії)
+            } else { // If not found, try next to the .exe (for development/portable version)
                 snprintf(paths->default_text_file_in_bundle_path, MAX_PATH_LEN -1, "%s%s", bundle_resources_path_base, TEXT_FILE_PATH_BASENAME);
                  log_paths_message_format(appCtx, "INFO: Default text.txt not found at '%s../%s'. Trying '%s%s'.", bundle_resources_path_base, TEXT_FILE_PATH_BASENAME, bundle_resources_path_base, TEXT_FILE_PATH_BASENAME);
             }
         #elif defined(__linux__)
-            // Для Linux зазвичай поруч з виконуваним файлом
+            // For Linux, usually next to the executable file
             snprintf(paths->default_text_file_in_bundle_path, MAX_PATH_LEN -1, "%s%s", bundle_resources_path_base, TEXT_FILE_PATH_BASENAME);
-        #else // Інші системи
+        #else // Other systems
             snprintf(paths->default_text_file_in_bundle_path, MAX_PATH_LEN -1, "%s%s", bundle_resources_path_base, TEXT_FILE_PATH_BASENAME);
         #endif
         paths->default_text_file_in_bundle_path[MAX_PATH_LEN-1] = '\0';
         log_paths_message_format(appCtx, "Base path (for default_text_file_in_bundle logic): %s", bundle_resources_path_base);
         SDL_free(bundle_resources_path_base);
     } else {
-        strncpy(paths->default_text_file_in_bundle_path, TEXT_FILE_PATH_BASENAME, MAX_PATH_LEN -1); // Резервний варіант - поточний каталог
+        strncpy(paths->default_text_file_in_bundle_path, TEXT_FILE_PATH_BASENAME, MAX_PATH_LEN -1); // Fallback option - current directory
         paths->default_text_file_in_bundle_path[MAX_PATH_LEN-1] = '\0';
         log_paths_message_format(appCtx, "Warning: SDL_GetBasePath() failed for determining default text.txt path. Using CWD: %s", paths->default_text_file_in_bundle_path);
     }
@@ -97,15 +97,15 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
     *out_raw_text_len = 0;
     char *raw_text_content = NULL;
 
-    // 1. Спробувати відкрити файл користувача
+    // 1. Try to open the user file
     FILE *text_file_handle = fopen(paths->actual_text_file_path, "rb");
 
-    if (!text_file_handle) { // Файл користувача не знайдено
+    if (!text_file_handle) { // User file not found
         log_paths_message_format(appCtx, "User-specific text.txt not found at '%s'. Attempting to copy from default: '%s'. Error (user file): %s",
                                  paths->actual_text_file_path, paths->default_text_file_in_bundle_path, strerror(errno));
 
         FILE *default_file_handle = fopen(paths->default_text_file_in_bundle_path, "rb");
-        if (default_file_handle) { // Знайдено стандартний файл
+        if (default_file_handle) { // Default file found
             fseek(default_file_handle, 0, SEEK_END);
             long default_file_size_long = ftell(default_file_handle);
 
@@ -115,13 +115,13 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
                 if (temp_copy_buffer) {
                     fseek(default_file_handle, 0, SEEK_SET);
                     if (fread(temp_copy_buffer, 1, default_file_size, default_file_handle) == default_file_size) {
-                        temp_copy_buffer[default_file_size] = '\0'; // Нуль-термінація для strdup
-                        // Копіюємо вміст у файл користувача
+                        temp_copy_buffer[default_file_size] = '\0'; // Null-termination for strdup
+                        // Copy content to the user file
                         FILE* user_file_write_handle = fopen(paths->actual_text_file_path, "wb");
                         if (user_file_write_handle) {
                             if (fwrite(temp_copy_buffer, 1, default_file_size, user_file_write_handle) == default_file_size) {
                                 log_paths_message_format(appCtx, "Successfully copied default text to user's path '%s'", paths->actual_text_file_path);
-                                raw_text_content = strdup(temp_copy_buffer); // Використовуємо скопійований текст
+                                raw_text_content = strdup(temp_copy_buffer); // Use the copied text
                                 if(raw_text_content) *out_raw_text_len = default_file_size; else log_paths_message_format(appCtx, "Error: strdup failed for copied text.");
                             } else {
                                 log_paths_message_format(appCtx, "Error writing copied text to user's path '%s': %s", paths->actual_text_file_path, strerror(errno));
@@ -140,10 +140,10 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
                 else log_paths_message_format(appCtx, "Default text file '%s' is too large (Size: %ld, Max: %d).", paths->default_text_file_in_bundle_path, default_file_size_long, MAX_TEXT_LEN);
             }
             fclose(default_file_handle);
-        } else { // Стандартний файл також не знайдено
+        } else { // Default file also not found
             log_paths_message_format(appCtx, "Error: Default text file '%s' also not found/readable: %s.", paths->default_text_file_in_bundle_path, strerror(errno));
         }
-    } else { // Файл користувача успішно відкрито
+    } else { // User file successfully opened
         log_paths_message_format(appCtx, "Successfully opened existing user text file: %s", paths->actual_text_file_path);
         fseek(text_file_handle, 0, SEEK_END);
         long file_size_long = ftell(text_file_handle);
@@ -156,7 +156,7 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
                 size_t bytes_read = fread(raw_text_content, 1, *out_raw_text_len, text_file_handle);
                 if (bytes_read != *out_raw_text_len) {
                     log_paths_message_format(appCtx, "WARN: fread mismatch from '%s'. Expected %zu, got %zu. Error: %s", paths->actual_text_file_path, *out_raw_text_len, bytes_read, strerror(errno));
-                    *out_raw_text_len = bytes_read; // Оновлюємо до фактично прочитаних
+                    *out_raw_text_len = bytes_read; // Update to actually read bytes
                 }
                 raw_text_content[*out_raw_text_len] = '\0';
             } else {
@@ -165,17 +165,17 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
             }
         } else if (file_size_long == 0) {
             log_paths_message_format(appCtx, "User text file '%s' is empty.", paths->actual_text_file_path);
-            // raw_text_content залишається NULL, *out_raw_text_len = 0
+            // raw_text_content remains NULL, *out_raw_text_len = 0
         } else {
             log_paths_message_format(appCtx, "Error: File '%s' size error (%ld bytes) or too large (Max: %d).", paths->actual_text_file_path, file_size_long, MAX_TEXT_LEN);
-            // raw_text_content залишається NULL, *out_raw_text_len = 0
+            // raw_text_content remains NULL, *out_raw_text_len = 0
         }
         fclose(text_file_handle);
     }
 
-    // Якщо після всіх спроб текст не завантажено (або файл порожній), використовуємо placeholder
+    // If text is not loaded after all attempts (or the file is empty), use placeholder
     if (!raw_text_content || *out_raw_text_len == 0) {
-        if (raw_text_content) { free(raw_text_content); raw_text_content = NULL; } // Якщо був порожній, але виділений
+        if (raw_text_content) { free(raw_text_content); raw_text_content = NULL; } // If it was empty but allocated
         log_paths_message_format(appCtx, "Text file is empty or could not be loaded. Initializing with placeholder text.");
 
         const char* placeholder_text_str = NULL;
@@ -194,7 +194,7 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
         }
         *out_raw_text_len = strlen(raw_text_content);
 
-        // Спроба записати placeholder у файл користувача, якщо шлях відомий
+        // Attempt to write placeholder to the user file if the path is known
         if (paths->actual_text_file_path[0] != '\0') {
             FILE* user_file_write_placeholder = fopen(paths->actual_text_file_path, "wb");
             if (user_file_write_placeholder) {
@@ -223,7 +223,7 @@ void SaveRemainingText(AppContext *appCtx, FilePaths *paths,
 
     if (current_input_byte_idx > 0 && current_input_byte_idx <= final_text_len) {
         if (paths->actual_text_file_path[0] != '\0') {
-            FILE *output_file_handle = fopen(paths->actual_text_file_path, "w"); // Відкриваємо для запису (перезаписуємо)
+            FILE *output_file_handle = fopen(paths->actual_text_file_path, "w"); // Open for writing (overwrite)
             if (output_file_handle) {
                 const char *remaining_text_ptr = text_to_type + current_input_byte_idx;
                 size_t remaining_len = final_text_len - current_input_byte_idx;
@@ -235,9 +235,9 @@ void SaveRemainingText(AppContext *appCtx, FilePaths *paths,
                     } else {
                         log_paths_message_format(appCtx, "Successfully wrote remaining %zu bytes of text to '%s'.", remaining_len, paths->actual_text_file_path);
                     }
-                } else { // Весь текст набрано
+                } else { // All text has been typed
                     log_paths_message_format(appCtx, "All text processed. User text file '%s' is now effectively empty (or will be truncated).", paths->actual_text_file_path);
-                    // fwrite з remaining_len=0 нічого не запише, файл буде порожнім
+                    // fwrite with remaining_len=0 will write nothing, the file will be empty
                 }
                 fclose(output_file_handle);
             } else {
@@ -254,7 +254,7 @@ void SaveRemainingText(AppContext *appCtx, FilePaths *paths,
 
         if (current_input_byte_idx == 0) {
             log_paths_message_format(appCtx, "No text processed (0 bytes typed). Text file '%s' not modified by SaveRemainingText.", temp_log_path_buffer);
-        } else { // current_input_byte_idx > final_text_len (малоймовірно, але можливо при помилках)
+        } else { // current_input_byte_idx > final_text_len (unlikely, but possible with errors)
             log_paths_message_format(appCtx, "WARN: current_input_byte_idx (%zu) > final_text_len (%zu). Text file '%s' not modified by SaveRemainingText.", current_input_byte_idx, final_text_len, temp_log_path_buffer);
         }
     }

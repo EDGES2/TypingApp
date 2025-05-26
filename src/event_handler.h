@@ -4,7 +4,7 @@
 #include "app_context.h"
 #include <SDL2/SDL_events.h> // For SDL_Event
 
-// Потрібні шляхи для відкриття файлів, тому передаємо їх
+// File paths are needed to open files, so pass them
 void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
                      size_t *current_input_byte_idx,
                      char *input_buffer, size_t final_text_len,

@@ -8,7 +8,7 @@ void CalculateCursorLayout(AppContext *appCtx, const char *text_to_type, size_t 
 
 void UpdateVisibleLine(AppContext *appCtx, int y_coord_for_update_abs);
 
-// Функція для предиктивного скролінгу, яка буде викликатися з головного циклу
+// Function for predictive scrolling, to be called from the main loop
 void PerformPredictiveScrollUpdate(AppContext *appCtx,
                                    const char *text_to_type,
                                    size_t final_text_len,

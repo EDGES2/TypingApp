@@ -6,7 +6,7 @@
 void RenderAppTimer(AppContext *appCtx, int *out_timer_h, int *out_timer_w);
 
 void RenderLiveStats(AppContext *appCtx,
-                     const char *input_buffer, size_t current_input_byte_idx, // text_to_type не потрібен тут
+                     const char *input_buffer, size_t current_input_byte_idx, // text_to_type is not needed here
                      int timer_x_pos, int timer_width, int timer_y_pos, int timer_height);
 
 void RenderTextContent(AppContext *appCtx, const char *text_to_type, size_t final_text_len,

@@ -1,13 +1,13 @@
 #include "app_context.h"
-#include "config.h" // Для FONT_SIZE, PROJECT_NAME_STR, COMPANY_NAME_STR, ENABLE_GAME_LOGS
-#include <SDL2/SDL_filesystem.h> // Для SDL_GetPrefPath
-#include <string.h> // Для memset
+#include "config.h" // For FONT_SIZE, PROJECT_NAME_STR, COMPANY_NAME_STR, ENABLE_GAME_LOGS
+#include <SDL2/SDL_filesystem.h> // For SDL_GetPrefPath
+#include <string.h> // For memset
 
 bool InitializeApp(AppContext *appCtx, const char* title) {
     if (!appCtx) return false;
-    memset(appCtx, 0, sizeof(AppContext)); // Ініціалізуємо всю структуру нулями
+    memset(appCtx, 0, sizeof(AppContext)); // Initialize the entire structure with zeros
 
-    // Ініціалізація лог-файлу (перенесено з main.c для централізації)
+    // Log file initialization (moved from main.c for centralization)
 #if ENABLE_GAME_LOGS
     char log_file_path_buffer[1024];
     char* pref_path_for_logs_tmp = SDL_GetPrefPath(COMPANY_NAME_STR, PROJECT_NAME_STR);
@@ -15,14 +15,14 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
         snprintf(log_file_path_buffer, sizeof(log_file_path_buffer), "%slogs.txt", pref_path_for_logs_tmp);
         SDL_free(pref_path_for_logs_tmp);
     } else {
-        strcpy(log_file_path_buffer, "TypingApp_logs.txt"); // Резервний шлях
+        strcpy(log_file_path_buffer, "TypingApp_logs.txt"); // Fallback path
         fprintf(stderr, "Warning: SDL_GetPrefPath() failed. Attempting to write log to: %s\n", log_file_path_buffer);
     }
     appCtx->log_file_handle = fopen(log_file_path_buffer, "w");
     if (appCtx->log_file_handle == NULL) {
         perror("CRITICAL_STDERR: Failed to open log file in InitializeApp");
         fprintf(stderr, "Log file path attempted: %s\n", log_file_path_buffer);
-        // Продовжуємо без лог-файлу, якщо його не вдалося відкрити
+        // Continue without a log file if it couldn't be opened
     } else {
         fputs("Application context initialization started.\n", appCtx->log_file_handle);
         fprintf(appCtx->log_file_handle, "Log file initialized at: %s\n", log_file_path_buffer);
@@ -44,8 +44,8 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
         return false;
     }
 
-    TTF_SetFontHinting(NULL, TTF_HINTING_LIGHT); // Спробуйте різні значення, якщо рендеринг шрифту поганий
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best"); // або "linear", "nearest"
+    TTF_SetFontHinting(NULL, TTF_HINTING_LIGHT); // Try different values if font rendering is poor
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best"); // or "linear", "nearest"
 
     appCtx->win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_W, WINDOW_H, SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
     if (!appCtx->win) {
@@ -61,14 +61,14 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
         SDL_DestroyWindow(appCtx->win); TTF_Quit(); SDL_Quit(); return false;
     }
 
-    // Обробка масштабування для дисплеїв HiDPI/Retina
+    // Scaling handling for HiDPI/Retina displays
     int physW_val, physH_val;
     SDL_GetRendererOutputSize(appCtx->ren, &physW_val, &physH_val);
     float scale_x = (float)physW_val / WINDOW_W;
     float scale_y = (float)physH_val / WINDOW_H;
     SDL_RenderSetScale(appCtx->ren, scale_x, scale_y);
 
-    // Логіка завантаження шрифту
+    // Font loading logic
     const char* font_paths[] = {
         "Arial Unicode.ttf", "arial.ttf",
 #ifdef _WIN32
@@ -114,7 +114,7 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
         return false;
     }
 
-    // Налаштування палітри
+    // Setup palette
     appCtx->palette[COL_BG]        = (SDL_Color){50,52,55,255};
     appCtx->palette[COL_TEXT]      = (SDL_Color){100,102,105,255};
     appCtx->palette[COL_CORRECT]   = (SDL_Color){201,200,190,255};
@@ -123,17 +123,17 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
 
     appCtx->line_h = TTF_FontLineSkip(appCtx->font);
     if (appCtx->line_h <= 0) appCtx->line_h = TTF_FontHeight(appCtx->font);
-    if (appCtx->line_h <= 0) appCtx->line_h = FONT_SIZE + 4; // Резервне значення
+    if (appCtx->line_h <= 0) appCtx->line_h = FONT_SIZE + 4; // Fallback value
 
-    // Кешування гліфів ASCII
-    for (int c = 32; c < 127; c++) { // Кешуємо тільки друковані ASCII символи
+    // Cache ASCII glyphs
+    for (int c = 32; c < 127; c++) { // Cache only printable ASCII characters
         int adv_val;
         if (TTF_GlyphMetrics(appCtx->font, (Uint16)c, NULL, NULL, NULL, NULL, &adv_val) != 0) {
-            adv_val = FONT_SIZE / 2; // Резервне значення, якщо метрики не вдалося отримати
+            adv_val = FONT_SIZE / 2; // Fallback value if metrics couldn't be obtained
         }
         appCtx->glyph_adv_cache[c] = (adv_val > 0) ? adv_val : FONT_SIZE / 2;
 
-        for (int col_idx = COL_TEXT; col_idx <= COL_INCORRECT; col_idx++) { // Кешуємо для основних кольорів тексту
+        for (int col_idx = COL_TEXT; col_idx <= COL_INCORRECT; col_idx++) { // Cache for primary text colors
             SDL_Surface *surf = TTF_RenderGlyph_Blended(appCtx->font, (Uint16)c, appCtx->palette[col_idx]);
             if (!surf) continue;
             appCtx->glyph_w_cache[col_idx][c] = surf->w;
@@ -145,12 +145,12 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
             SDL_FreeSurface(surf);
         }
     }
-    // Ширина пробілу та табуляції
+    // Space and tab width
     appCtx->space_advance_width = appCtx->glyph_adv_cache[' '];
-    if (appCtx->space_advance_width <= 0) appCtx->space_advance_width = FONT_SIZE / 3; // Резерв
+    if (appCtx->space_advance_width <= 0) appCtx->space_advance_width = FONT_SIZE / 3; // Fallback
     appCtx->tab_width_pixels = (appCtx->space_advance_width > 0) ? (TAB_SIZE_IN_SPACES * appCtx->space_advance_width) : (TAB_SIZE_IN_SPACES * (FONT_SIZE / 3));
 
-    // Ініціалізація стану
+    // State initialization
     appCtx->typing_started = false;
     appCtx->start_time_ms = 0;
     appCtx->time_at_pause_ms = 0;
@@ -176,7 +176,7 @@ void CleanupApp(AppContext *appCtx) {
 
     if(appCtx->log_file_handle) fprintf(appCtx->log_file_handle, "Cleaning up application context...\n");
 
-    // Звільнення кешованих текстур гліфів
+    // Free cached glyph textures
     for (int c = 32; c < 127; c++) {
         for (int col = COL_TEXT; col <= COL_INCORRECT; col++) {
             if (appCtx->glyph_tex_cache[col][c]) {

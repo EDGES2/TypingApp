@@ -5,7 +5,7 @@
 #define WINDOW_W     800
 #define WINDOW_H     200
 #define FONT_SIZE    14
-#define MAX_TEXT_LEN (5 * 1024 * 1024) // Максимальна довжина необробленого тексту
+#define MAX_TEXT_LEN (5 * 1024 * 1024) // Maximum length of raw text
 
 #ifndef TEXT_FILE_PATH_BASENAME
 #define TEXT_FILE_PATH_BASENAME "text.txt"
@@ -14,7 +14,7 @@
 #define STATS_FILE_BASENAME "stats.txt"
 #endif
 
-// Ці визначення будуть замінені значеннями з CMake, якщо вони там вказані.
+// These definitions will be replaced by values from CMake if specified there.
 #ifndef PROJECT_NAME_STR
 #define PROJECT_NAME_STR "TypingApp"
 #endif
@@ -25,22 +25,22 @@
 #define TEXT_AREA_X 10
 #define TEXT_AREA_PADDING_Y 10
 #define TEXT_AREA_W (WINDOW_W - (2 * TEXT_AREA_X))
-#define DISPLAY_LINES 3 // Кількість рядків тексту, що відображаються одночасно
-#define CURSOR_TARGET_VIEWPORT_LINE 1 // На якому рядку в'юпорта (0-індексований) має бути курсор
-#define TAB_SIZE_IN_SPACES 4 // Кількість пробілів для одного символу табуляції
+#define DISPLAY_LINES 3 // Number of text lines displayed simultaneously
+#define CURSOR_TARGET_VIEWPORT_LINE 1 // On which viewport line (0-indexed) the cursor should be
+#define TAB_SIZE_IN_SPACES 4 // Number of spaces for a single tab character
 
-// Встановіть в 1, щоб увімкнути логування у файл.
-// Файл логів буде створено у теці налаштувань користувача.
+// Set to 1 to enable logging to a file.
+// The log file will be created in the user's settings directory.
 #define ENABLE_GAME_LOGS 1
 
-// Кольори
+// Colors
 enum {
-    COL_BG,          // Фон
-    COL_TEXT,        // Основний текст (ще не набраний)
-    COL_CORRECT,     // Правильно набраний текст
-    COL_INCORRECT,   // Неправильно набраний текст
-    COL_CURSOR,      // Колір курсора
-    N_COLORS         // Кількість кольорів у палітрі
+    COL_BG,          // Background
+    COL_TEXT,        // Main text (not yet typed)
+    COL_CORRECT,     // Correctly typed text
+    COL_INCORRECT,   // Incorrectly typed text
+    COL_CURSOR,      // Cursor color
+    N_COLORS         // Number of colors in the palette
 };
 
 #endif // CONFIG_H
