@@ -167,10 +167,10 @@ void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
                     if (event->key.keysym.sym == SDLK_LGUI && appCtx->r_cmd_modifier_held) can_toggle_this_event = true;
                     if (event->key.keysym.sym == SDLK_RGUI && appCtx->l_cmd_modifier_held) can_toggle_this_event = true;
                 }
-                if (!can_toggle_this_event && appCtx->l_alt_modifier_held && appCtx->r_alt_modifier_held) { // Alt pair
-                    if (event->key.keysym.sym == SDLK_LALT && appCtx->r_alt_modifier_held) can_toggle_this_event = true;
-                    if (event->key.keysym.sym == SDLK_RALT && appCtx->l_alt_modifier_held) can_toggle_this_event = true;
-                }
+                // if (!can_toggle_this_event && appCtx->l_alt_modifier_held && appCtx->r_alt_modifier_held) { // Alt pair (option + option shortcut if needed)
+                //     if (event->key.keysym.sym == SDLK_LALT && appCtx->r_alt_modifier_held) can_toggle_this_event = true;
+                //     if (event->key.keysym.sym == SDLK_RALT && appCtx->l_alt_modifier_held) can_toggle_this_event = true;
+                // }
 #endif
 
                 if (can_toggle_this_event) {

@@ -78,11 +78,11 @@ char* PreprocessText(AppContext *appCtx, const char* raw_text_buffer, size_t raw
             continue;
         }
 
-        // Replace "--" with em-dash (—) U+2014 (E2 80 94)
+        // Replace "--" with en-dash (–) U+2013 (E2 80 93)
         if (*p_read == '-' && (p_read + 1 < p_read_end) && *(p_read + 1) == '-') {
             temp_buffer[temp_w_idx++] = (char)0xE2;
             temp_buffer[temp_w_idx++] = (char)0x80;
-            temp_buffer[temp_w_idx++] = (char)0x94; // em-dash
+            temp_buffer[temp_w_idx++] = (char)0x93; // en-dash
             p_read += 2;
             continue;
         }
