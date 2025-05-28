@@ -31,8 +31,13 @@ typedef struct {
     Uint32 start_time_ms;
     Uint32 time_at_pause_ms; // Time when pause was pressed
     bool is_paused;
-    bool l_modifier_held; // LAlt or LCmd
-    bool r_modifier_held; // RAlt or RCmd
+    // bool l_modifier_held; // LAlt or LCmd
+    // bool r_modifier_held; // RAlt or RCmd
+    // Modifier key states for pause and shortcuts
+    bool l_alt_modifier_held;
+    bool r_alt_modifier_held;
+    bool l_cmd_modifier_held; // Specifically for macOS
+    bool r_cmd_modifier_held; // Specifically for macOS
 
     // Statistics
     unsigned long long total_keystrokes_for_accuracy;

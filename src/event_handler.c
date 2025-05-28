@@ -19,6 +19,37 @@ static void log_event_message_format(AppContext *appCtx, const char* format, ...
     }
 }
 
+// Helper function to get the starting byte position of the UTF-8 character
+// immediately preceding the character at current_pos_ptr in the buffer.
+static const char* get_start_of_previous_utf8_char_robust(const char *buffer_start, const char *current_pos_ptr) {
+    if (current_pos_ptr <= buffer_start) {
+        return buffer_start;
+    }
+
+    const char *prev_char_start = buffer_start;
+    const char *iter = buffer_start;
+    while(iter < current_pos_ptr) {
+        prev_char_start = iter; // Remember the start of the current char being scanned
+        Sint32 cp = decode_utf8(&iter, current_pos_ptr); // iter advances here
+        if (iter <= prev_char_start || cp <= 0) { // Error in decoding or decode_utf8 didn't advance
+                                                  // (cp <= 0 includes invalid chars and null terminator)
+            // Fallback: step back one byte from original current_pos_ptr.
+            // This mimics the original single char backspace's error handling more closely.
+            // If current_pos_ptr points right after an invalid sequence that decode_utf8 skipped by one byte,
+            // this ensures we go back before that.
+            if (current_pos_ptr > buffer_start) {
+                 // This is a simplified fallback. A truly robust solution for arbitrary invalid UTF-8
+                 // might require more complex byte-level analysis if decode_utf8 itself can't backtrack.
+                 // However, for typical scenarios, this should be okay.
+                return current_pos_ptr - 1;
+            }
+            return buffer_start;
+        }
+    }
+    // iter is now == current_pos_ptr, so prev_char_start holds the beginning of the last char
+    return prev_char_start;
+}
+
 
 void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
                      size_t *current_input_byte_idx,
@@ -41,26 +72,108 @@ void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
             return;
         }
 
-        // Handling key presses for pause (LAlt+RAlt or LCmd+RCmd)
-        if (event->type == SDL_KEYDOWN) {
-            if (!event->key.repeat) { // Process only the first press, not repeats
-                bool prev_l_modifier_held = appCtx->l_modifier_held;
-                bool prev_r_modifier_held = appCtx->r_modifier_held;
+        // --- Modifier Key State Update ---
+        if (event->type == SDL_KEYDOWN || event->type == SDL_KEYUP) {
+            bool key_is_down = (event->type == SDL_KEYDOWN);
+            if (event->key.repeat && key_is_down) { // Ignore repeats for modifier state changes, but not for backspace repeat.
+                                                 // This block is only for setting modifier flags.
+                // continue; // No, this would skip all other keydown processing for repeats.
+                           // Let's allow repeat for backspace etc.
+                           // The modifier flags themselves are set once on initial press/release.
+            } else { // Process only first press/release for modifiers for pause.
+                 // For backspace, repeats are handled later. This 'else' is for pause logic modifiers.
 
-                #if defined(_WIN32) || defined(__linux__)
-                    if (event->key.keysym.sym == SDLK_LALT) appCtx->l_modifier_held = true;
-                    else if (event->key.keysym.sym == SDLK_RALT) appCtx->r_modifier_held = true;
-                #elif defined(__APPLE__)
-                    // On macOS, SDLK_LOPTION/ROPTION is often used for Alt, but KMOD_LALT/RALT might also work
-                    // CMD is usually SDLK_LGUI/RGUI
-                    if (event->key.keysym.sym == SDLK_LGUI || event->key.keysym.sym == SDLK_LALT) appCtx->l_modifier_held = true;
-                    else if (event->key.keysym.sym == SDLK_RGUI || event->key.keysym.sym == SDLK_RALT) appCtx->r_modifier_held = true;
-                #else // General case (less reliable, better to use scancodes if there are issues)
-                    if (event->key.keysym.mod & KMOD_LALT) appCtx->l_modifier_held = true;
-                    if (event->key.keysym.mod & KMOD_RALT) appCtx->r_modifier_held = true;
-                #endif
+#if defined(_WIN32) || defined(__linux__)
+                if (event->key.keysym.sym == SDLK_LALT) appCtx->l_alt_modifier_held = key_is_down;
+                else if (event->key.keysym.sym == SDLK_RALT) appCtx->r_alt_modifier_held = key_is_down;
+#elif defined(__APPLE__)
+                if (event->key.keysym.sym == SDLK_LGUI) appCtx->l_cmd_modifier_held = key_is_down;
+                else if (event->key.keysym.sym == SDLK_RGUI) appCtx->r_cmd_modifier_held = key_is_down;
+                // LALT for Option key (used for word delete and potentially pause)
+                if (event->key.keysym.sym == SDLK_LALT) appCtx->l_alt_modifier_held = key_is_down;
+                else if (event->key.keysym.sym == SDLK_RALT) appCtx->r_alt_modifier_held = key_is_down;
+#else // Generic, less reliable KMOD check
+                if (event->key.keysym.sym == SDLK_LALT || (event->key.keysym.mod & KMOD_LALT)) appCtx->l_alt_modifier_held = key_is_down;
+                if (event->key.keysym.sym == SDLK_RALT || (event->key.keysym.mod & KMOD_RALT)) appCtx->r_alt_modifier_held = key_is_down;
+                // No standard KMOD for CMD/GUI, so this part is tricky for generic.
+                // It's better to rely on specific syms for cmd-like keys if needed on other platforms.
+#endif
+            }
+        }
 
-                if (appCtx->l_modifier_held && appCtx->r_modifier_held && !(prev_l_modifier_held && prev_r_modifier_held)) {
+        // --- Pause Toggle Logic ---
+        if (event->type == SDL_KEYDOWN && !event->key.repeat) {
+            bool toggle_pause = false;
+            // Store current state to check if this is the *first* time the combo is achieved
+            // This helps prevent toggling multiple times if keys are held or pressed staggered.
+            // For this check, we need the state *before* the current event was processed for modifiers.
+            // So, this check needs to be carefully placed or use a snapshot.
+            // Let's assume modifier flags are updated above, then we check.
+            // The "prev_*" logic was about preventing toggle on *holding* both keys down.
+            // A simpler way for "newly pressed combo" is to toggle only if not already paused, or if paused.
+            // Let's use a flag to ensure one toggle per keydown combo event.
+
+            // The condition for toggling should be:
+            // 1. Both required keys are currently down.
+            // 2. We haven't already processed this specific combo trigger in this event loop.
+            // The `!event->key.repeat` handles the "newly pressed" aspect for the *individual* key causing the event.
+            // The critical part is that *both* keys must be down.
+
+#if defined(_WIN32) || defined(__linux__)
+            if (appCtx->l_alt_modifier_held && appCtx->r_alt_modifier_held) {
+                // To ensure it only triggers once when the second key of the pair is pressed:
+                // Check if the *other* key was already held.
+                if (event->key.keysym.sym == SDLK_LALT && !appCtx->is_paused) { // LALT pressed, RALT was already held
+                     // if r_alt was held, and now l_alt is pressed
+                } else if (event->key.keysym.sym == SDLK_RALT && !appCtx->is_paused) { // RALT pressed, LALT was already held
+                    // if l_alt was held, and now r_alt is pressed
+                }
+                // The above is too complex. Simpler: if both are down, and the sym is one of them, toggle.
+                if (event->key.keysym.sym == SDLK_LALT || event->key.keysym.sym == SDLK_RALT) {
+                    toggle_pause = true;
+                }
+            }
+#elif defined(__APPLE__)
+            bool cmd_pair_active = appCtx->l_cmd_modifier_held && appCtx->r_cmd_modifier_held;
+            bool alt_pair_active = appCtx->l_alt_modifier_held && appCtx->r_alt_modifier_held;
+
+            if (cmd_pair_active) {
+                 if (event->key.keysym.sym == SDLK_LGUI || event->key.keysym.sym == SDLK_RGUI) {
+                    toggle_pause = true;
+                 }
+            }
+            if (!toggle_pause && alt_pair_active) { // Check alt pair only if cmd pair didn't trigger
+                 if (event->key.keysym.sym == SDLK_LALT || event->key.keysym.sym == SDLK_RALT) {
+                    toggle_pause = true;
+                 }
+            }
+#endif
+            if (toggle_pause) {
+                // Check if the *specific key causing this event* is one of the pair,
+                // and that this is not a repeat. This prevents multiple toggles if both
+                // keys are pressed nearly simultaneously generating two KEYDOWN events before
+                // the pause state changes the flow.
+                // The `!event->key.repeat` helps.
+                // The `toggle_pause` variable itself, if reset each event loop, helps ensure one action per distinct combo.
+
+                // The critical check: only toggle if the state is changing from "one mod down" to "both mods down"
+                // This means, the key that was just pressed *completed* the pair.
+                bool can_toggle_this_event = false;
+#if defined(_WIN32) || defined(__linux__)
+                if (event->key.keysym.sym == SDLK_LALT && appCtx->r_alt_modifier_held) can_toggle_this_event = true;
+                if (event->key.keysym.sym == SDLK_RALT && appCtx->l_alt_modifier_held) can_toggle_this_event = true;
+#elif defined(__APPLE__)
+                if (appCtx->l_cmd_modifier_held && appCtx->r_cmd_modifier_held) { // CMD pair takes precedence
+                    if (event->key.keysym.sym == SDLK_LGUI && appCtx->r_cmd_modifier_held) can_toggle_this_event = true;
+                    if (event->key.keysym.sym == SDLK_RGUI && appCtx->l_cmd_modifier_held) can_toggle_this_event = true;
+                }
+                if (!can_toggle_this_event && appCtx->l_alt_modifier_held && appCtx->r_alt_modifier_held) { // Alt pair
+                    if (event->key.keysym.sym == SDLK_LALT && appCtx->r_alt_modifier_held) can_toggle_this_event = true;
+                    if (event->key.keysym.sym == SDLK_RALT && appCtx->l_alt_modifier_held) can_toggle_this_event = true;
+                }
+#endif
+
+                if (can_toggle_this_event) {
                     appCtx->is_paused = !appCtx->is_paused;
                     if (appCtx->is_paused) {
                         if (appCtx->typing_started) { appCtx->time_at_pause_ms = SDL_GetTicks(); }
@@ -71,39 +184,11 @@ void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
                     }
                 }
             }
-        } else if (event->type == SDL_KEYUP) {
-             if (!event->key.repeat) {
-                #if defined(_WIN32) || defined(__linux__)
-                    if (event->key.keysym.sym == SDLK_LALT) appCtx->l_modifier_held = false;
-                    else if (event->key.keysym.sym == SDLK_RALT) appCtx->r_modifier_held = false;
-                #elif defined(__APPLE__)
-                    if (event->key.keysym.sym == SDLK_LGUI || event->key.keysym.sym == SDLK_LALT) appCtx->l_modifier_held = false;
-                    else if (event->key.keysym.sym == SDLK_RGUI || event->key.keysym.sym == SDLK_RALT) appCtx->l_modifier_held = false;
-                #else
-                    // Reset modifiers if the corresponding key was released
-                    // This is more difficult to do reliably with KMOD alone, as KMOD might not update perfectly
-                    // for some systems. Checking scancode might be more reliable.
-                    if (!(event->key.keysym.mod & KMOD_LALT) && appCtx->l_modifier_held &&
-                        (event->key.keysym.scancode == SDL_GetScancodeFromKey(SDLK_LALT)
-                         #ifdef __APPLE__
-                         || event->key.keysym.scancode == SDL_GetScancodeFromKey(SDLK_LGUI)
-                         #endif
-                        ) ) {
-                        appCtx->l_modifier_held = false;
-                    }
-                    if (!(event->key.keysym.mod & KMOD_RALT) && appCtx->r_modifier_held &&
-                        (event->key.keysym.scancode == SDL_GetScancodeFromKey(SDLK_RALT)
-                         #ifdef __APPLE__
-                         || event->key.keysym.scancode == SDL_GetScancodeFromKey(SDLK_RGUI)
-                         #endif
-                        ) ) {
-                        appCtx->r_modifier_held = false;
-                    }
-                #endif
-            }
         }
 
+
         // Handling commands in paused state (opening files)
+        // This part of the code does not need changes related to pause key logic itself.
         if (appCtx->is_paused && event->type == SDL_KEYDOWN && !event->key.repeat) {
             char command[1100] = {0}; // Buffer for system command
             const char* file_to_open = NULL;
@@ -150,33 +235,77 @@ void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
             }
         }
 
-        // If the game is paused, ignore other input
+        // If the game is paused, ignore other input (like text input, backspace)
         if (appCtx->is_paused) {
             continue;
         }
 
-        // Backspace handling
-        if (event->type == SDL_KEYDOWN) {
+        // Backspace handling (normal and word delete)
+        if (event->type == SDL_KEYDOWN) { // Note: SDL_KEYDOWN can repeat if key is held.
+                                         // The !event->key.repeat check is usually for actions you want once per physical press.
+                                         // For backspace (single or word), repeating is often desired.
             if (event->key.keysym.sym == SDLK_BACKSPACE && *current_input_byte_idx > 0) {
-                const char *buffer_start = input_buffer;
-                const char *current_pos_ptr = input_buffer + *current_input_byte_idx;
-                const char *prev_char_start_ptr_scan = buffer_start; // Pointer to the beginning of the previous character
-                const char *temp_iter_scan = buffer_start; // Iterator for scanning
-
-                // Find the beginning of the last UTF-8 character
-                while(temp_iter_scan < current_pos_ptr) {
-                    prev_char_start_ptr_scan = temp_iter_scan; // Remember the beginning of the current character
-                    Sint32 cp_decoded_val = decode_utf8(&temp_iter_scan, current_pos_ptr); // Advance temp_iter_scan
-                    if (temp_iter_scan <= prev_char_start_ptr_scan || cp_decoded_val <=0) { // Error or end
-                        // If something went wrong, step back one byte (less precise, but safe)
-                        prev_char_start_ptr_scan = current_pos_ptr - 1;
-                        if (prev_char_start_ptr_scan < buffer_start) prev_char_start_ptr_scan = buffer_start; // Do not go out of buffer bounds
-                        break;
+                bool word_delete_modifier_active = false;
+                #if defined(__APPLE__)
+                    // On macOS, LOption (LAlt) + Backspace
+                    if (appCtx->l_alt_modifier_held) { // We are using l_alt_modifier_held (SDLK_LALT)
+                        word_delete_modifier_active = true;
                     }
+                #else // Windows, Linux
+                    // On Windows/Linux, LCtrl + Backspace
+                    SDL_Keymod current_mods = SDL_GetModState();
+                    if (current_mods & KMOD_LCTRL || current_mods & KMOD_RCTRL) {
+                        word_delete_modifier_active = true;
+                    }
+                #endif
+
+                if (word_delete_modifier_active) {
+                    // --- Delete Word Logic ---
+                    const char *buffer_start = input_buffer;
+                    const char *p = input_buffer + *current_input_byte_idx; // Start at current cursor position (after last char)
+
+                    if (p > buffer_start) { // Only if there's something to delete
+                        // 1. Move backwards over any trailing whitespace (from current cursor position)
+                        while (p > buffer_start) {
+                            const char *prev_char_start_ptr = get_start_of_previous_utf8_char_robust(buffer_start, p);
+                            const char *char_to_check_ptr = prev_char_start_ptr; // Copy to not alter prev_char_start_ptr if decode_utf8 modifies its arg
+                            Sint32 cp = decode_utf8(&char_to_check_ptr, p);
+
+                            // Consider common whitespace characters
+                            if (cp == ' ' || cp == '\n' || cp == '\r' || cp == '\t') {
+                                p = prev_char_start_ptr; // Move p to the beginning of this whitespace char
+                            } else {
+                                break; // Found a non-whitespace character
+                            }
+                        }
+
+                        // 2. Move backwards over the word (non-whitespace characters)
+                        while (p > buffer_start) {
+                            const char *prev_char_start_ptr = get_start_of_previous_utf8_char_robust(buffer_start, p);
+                            const char *char_to_check_ptr = prev_char_start_ptr;
+                            Sint32 cp = decode_utf8(&char_to_check_ptr, p);
+
+                            if (cp > 0 && cp != ' ' && cp != '\n' && cp != '\r' && cp != '\t') {
+                                p = prev_char_start_ptr; // Move p to the beginning of this non-whitespace char
+                            } else {
+                                break; // Found whitespace, null, or error - stop
+                            }
+                        }
+                    }
+                    *current_input_byte_idx = (size_t)(p - buffer_start);
+                    input_buffer[*current_input_byte_idx] = '\0'; // Truncate the buffer
+                    log_event_message_format(appCtx, "Word Backspace. New input index: %zu. Input: '%s'", *current_input_byte_idx, input_buffer);
+
+                } else {
+                    // --- Normal Single Character Backspace Logic ---
+                    const char *buffer_start = input_buffer;
+                    const char *current_pos_ptr = input_buffer + *current_input_byte_idx;
+                    const char* prev_char_start_ptr = get_start_of_previous_utf8_char_robust(buffer_start, current_pos_ptr);
+
+                    *current_input_byte_idx = (size_t)(prev_char_start_ptr - buffer_start);
+                    input_buffer[*current_input_byte_idx] = '\0'; // Truncate the buffer
+                    log_event_message_format(appCtx, "Backspace. New input index: %zu. Input: '%s'", *current_input_byte_idx, input_buffer);
                 }
-                *current_input_byte_idx = (size_t)(prev_char_start_ptr_scan - buffer_start);
-                input_buffer[*current_input_byte_idx] = '\0'; // Truncate the buffer
-                log_event_message_format(appCtx, "Backspace. New input index: %zu. Input: '%s'", *current_input_byte_idx, input_buffer);
             }
         }
 
@@ -213,7 +342,7 @@ void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
                     const char* p_target_char_at_offset = text_to_type + current_target_byte_offset_for_event;
                     const char* p_target_char_next_ptr_for_len = p_target_char_at_offset;
                     Sint32 cp_target = decode_utf8(&p_target_char_next_ptr_for_len, text_to_type + final_text_len);
-                    size_t target_char_len = (size_t)(p_target_char_next_ptr_for_len - p_target_char_at_offset);
+                    // size_t target_char_len = (size_t)(p_target_char_next_ptr_for_len - p_target_char_at_offset); // Not used in this block after this
 
                     if (cp_target <=0 || cp_event != cp_target) { // Error: invalid target character or mismatch
                         appCtx->total_errors_committed_for_accuracy++;
@@ -221,11 +350,20 @@ void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
                         else if (appCtx->log_file_handle) fprintf(appCtx->log_file_handle, "Error: Typed U+%04X (event), Expected invalid/end of target text.\n", cp_event);
                     }
                     // Advance the index in the target text, even if there was an error
-                    if(cp_target > 0 && target_char_len > 0) {
-                        current_target_byte_offset_for_event += target_char_len;
-                    } else { // If the target character is invalid, advance by 1 byte
-                        current_target_byte_offset_for_event++;
+                    // This logic was buggy, it should advance by the length of the *target* character that was *expected*
+                    const char* temp_target_advancer = text_to_type + current_target_byte_offset_for_event;
+                    const char* temp_target_advancer_orig = temp_target_advancer;
+                    if (current_target_byte_offset_for_event < final_text_len) { // Check again to not read past buffer
+                        Sint32 cp_target_for_advance = decode_utf8(&temp_target_advancer, text_to_type + final_text_len);
+                        if (cp_target_for_advance > 0 && temp_target_advancer > temp_target_advancer_orig) {
+                             current_target_byte_offset_for_event += (size_t)(temp_target_advancer - temp_target_advancer_orig);
+                        } else { // Invalid target char or end of text, advance by 1 byte in target offset
+                            current_target_byte_offset_for_event++;
+                        }
+                    } else { // Already at or past end of target text, just increment
+                         current_target_byte_offset_for_event++;
                     }
+
                 } else { // Text input beyond the target text
                     appCtx->total_errors_committed_for_accuracy++;
                     current_target_byte_offset_for_event++; // Still advance the "expected" position
@@ -241,21 +379,12 @@ void HandleAppEvents(AppContext *appCtx, SDL_Event *event,
                 // Prevent entering a second consecutive space
                 if(input_event_len_bytes == 1 && event->text.text[0] == ' ' && *current_input_byte_idx > 0){
                     const char *end_of_current_input = input_buffer + (*current_input_byte_idx);
-                    const char *last_char_ptr_in_buf_scan = input_buffer; // Beginning of the last character in the buffer
-                    const char *iter_ptr_buf_scan = input_buffer;
-                     while(iter_ptr_buf_scan < end_of_current_input){
-                        last_char_ptr_in_buf_scan = iter_ptr_buf_scan;
-                        Sint32 cp_buf_temp_val = decode_utf8(&iter_ptr_buf_scan, end_of_current_input);
-                        if(iter_ptr_buf_scan <= last_char_ptr_in_buf_scan || cp_buf_temp_val <= 0) { // Error or end
-                            last_char_ptr_in_buf_scan = end_of_current_input -1; // Rollback 1 byte
-                            if (last_char_ptr_in_buf_scan < input_buffer) last_char_ptr_in_buf_scan = input_buffer;
-                            break;
-                        }
-                     }
-                     // Now last_char_ptr_in_buf_scan points to the beginning of the last character
-                     const char *temp_last_char_ptr_check = last_char_ptr_in_buf_scan;
-                     Sint32 last_cp_in_buf = decode_utf8(&temp_last_char_ptr_check, end_of_current_input);
-                     if (last_cp_in_buf == ' ') { // If the last character in the buffer was already a space
+                    // Use the robust helper to get the last char in the buffer
+                    const char *last_char_start_in_buf = get_start_of_previous_utf8_char_robust(input_buffer, end_of_current_input);
+                    const char *temp_last_char_ptr_check = last_char_start_in_buf; // Make a copy to pass to decode_utf8
+                    Sint32 last_cp_in_buf = decode_utf8(&temp_last_char_ptr_check, end_of_current_input);
+
+                    if (last_cp_in_buf == ' ') { // If the last character in the buffer was already a space
                         can_add_input = false;
                      }
                 }

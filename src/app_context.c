@@ -269,8 +269,11 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
     appCtx->start_time_ms = 0;
     appCtx->time_at_pause_ms = 0;
     appCtx->is_paused = false;
-    appCtx->l_modifier_held = false;
-    appCtx->r_modifier_held = false;
+    // appCtx->l_modifier_held = false; // REMOVED - these were the cause of the error
+    // appCtx->r_modifier_held = false; // REMOVED - these were the cause of the error
+    // New modifier flags (l_alt_modifier_held, r_alt_modifier_held, l_cmd_modifier_held, r_cmd_modifier_held)
+    // are already initialized to false by the memset at the beginning of this function.
+
     appCtx->total_keystrokes_for_accuracy = 0;
     appCtx->total_errors_committed_for_accuracy = 0;
     appCtx->first_visible_abs_line_num = 0;
