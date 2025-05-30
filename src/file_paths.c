@@ -1,7 +1,7 @@
 #include "file_paths.h"
 #include "config.h" // For TEXT_FILE_PATH_BASENAME, STATS_FILE_BASENAME, COMPANY_NAME_STR, PROJECT_NAME_STR, MAX_TEXT_LEN
 #include <SDL2/SDL_filesystem.h> // For SDL_GetPrefPath, SDL_GetBasePath
-#include <stdio.h>  // For snprintf, fopen, fclose, fread, fwrite, fseek, ftell, perror
+#include <stdio.h>  // For snprintf, fclose, fread, fwrite, fseek, ftell, perror
 #include <string.h> // For strcpy, strncpy, strlen, strerror, strdup
 #include <stdlib.h> // For malloc, free
 #include <errno.h>  // For errno
@@ -19,23 +19,21 @@ FILE* fopen_unicode_path(const char *utf8_path, const char *mode) {
 
     // Convert the file open mode (mode) to wchar_t*
     wchar_t w_mode[10] = {0}; // Sufficient for standard modes "r", "w", "a", "rb", etc.
-    // MultiByteToWideChar(CP_ACP, 0, mode, -1, w_mode, sizeof(w_mode)/sizeof(w_mode[0])); // If mode is also UTF-8
-    // Or, if mode is always ASCII, it can be simpler:
     size_t mode_len = strlen(mode);
     if (mode_len >= sizeof(w_mode)/sizeof(w_mode[0])) { // Buffer overflow check
+        // Optionally log this error
         return NULL;
     }
     for (size_t i = 0; i <= mode_len; ++i) { // <= to copy the null-terminator
         w_mode[i] = (wchar_t)mode[i];
     }
 
-
     // Determine the required buffer size for the UTF-16 path
     int required_wchars = MultiByteToWideChar(CP_UTF8, 0, utf8_path, -1, NULL, 0);
     if (required_wchars == 0) {
         // Conversion error, GetLastError() can be logged
-        // fprintf(stderr, "MultiByteToWideChar (size check) failed for path %s: %lu\n", utf8_path, GetLastError());
-        return NULL; // Or fall back to fopen(utf8_path, mode) as a last resort, although this brings back the original problem
+        // fprintf(stderr, "MultiByteToWideChar (size check) failed for path %s: Error %lu\n", utf8_path, GetLastError());
+        return NULL;
     }
 
     wchar_t *w_path = (wchar_t *)malloc(required_wchars * sizeof(wchar_t));
@@ -48,20 +46,13 @@ FILE* fopen_unicode_path(const char *utf8_path, const char *mode) {
     // Convert the UTF-8 path to UTF-16
     if (MultiByteToWideChar(CP_UTF8, 0, utf8_path, -1, w_path, required_wchars) == 0) {
         // Conversion error
-        // fprintf(stderr, "MultiByteToWideChar (conversion) failed for path %s: %lu\n", utf8_path, GetLastError());
+        // fprintf(stderr, "MultiByteToWideChar (conversion) failed for path %s: Error %lu\n", utf8_path, GetLastError());
         free(w_path);
         return NULL;
     }
 
     FILE *file = _wfopen(w_path, w_mode);
-    // if (!file) {
-    //     // wchar_t err_buf[256];
-    //     // if (_wcserror_s(err_buf, sizeof(err_buf)/sizeof(err_buf[0]), errno) == 0) {
-    //     //     fwprintf(stderr, L"_wfopen failed for %s: %s (errno %d)\n", w_path, err_buf, errno);
-    //     // } else {
-    //     //     fwprintf(stderr, L"_wfopen failed for %s (errno %d)\n", w_path, errno);
-    //     // }
-    // }
+    // Error logging for _wfopen can be added here if needed, using errno
     free(w_path);
     return file;
 
@@ -130,7 +121,7 @@ void InitializeFilePaths(AppContext *appCtx, FilePaths *paths) {
         #elif defined(_WIN32)
             // For Windows, if installed, it might be one level up, or next to the .exe for local builds
             snprintf(paths->default_text_file_in_bundle_path, MAX_PATH_LEN -1, "%s../%s", bundle_resources_path_base, TEXT_FILE_PATH_BASENAME); // Attempt for installation
-            FILE *test_f = fopen(paths->default_text_file_in_bundle_path, "rb"); // Note: This fopen might still use the old logic if not yet replaced
+            FILE *test_f = fopen_unicode_path(paths->default_text_file_in_bundle_path, "rb"); // USE UNICODE PATH
             if (test_f) {
                 fclose(test_f);
                 log_paths_message_format(appCtx, "INFO: Found default text.txt at potential installed location: %s", paths->default_text_file_in_bundle_path);
@@ -163,13 +154,13 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
     char *raw_text_content = NULL;
 
     // 1. Try to open the user file
-    FILE *text_file_handle = fopen_unicode_path(paths->actual_text_file_path, "rb"); // USING THE NEW FUNCTION
+    FILE *text_file_handle = fopen_unicode_path(paths->actual_text_file_path, "rb");
 
     if (!text_file_handle) { // User file not found
         log_paths_message_format(appCtx, "User-specific text.txt not found at '%s'. Attempting to copy from default: '%s'. Error (user file): %s",
-                                 paths->actual_text_file_path, paths->default_text_file_in_bundle_path, strerror(errno)); // errno might be less relevant if _wfopen failed
+                                 paths->actual_text_file_path, paths->default_text_file_in_bundle_path, strerror(errno)); // Note: strerror(errno) might be less informative for _wfopen failures
 
-        FILE *default_file_handle = fopen_unicode_path(paths->default_text_file_in_bundle_path, "rb"); // USING THE NEW FUNCTION
+        FILE *default_file_handle = fopen_unicode_path(paths->default_text_file_in_bundle_path, "rb");
         if (default_file_handle) { // Default file found
             fseek(default_file_handle, 0, SEEK_END);
             long default_file_size_long = ftell(default_file_handle);
@@ -182,7 +173,7 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
                     if (fread(temp_copy_buffer, 1, default_file_size, default_file_handle) == default_file_size) {
                         temp_copy_buffer[default_file_size] = '\0'; // Null-termination for strdup
                         // Copy content to the user file
-                        FILE* user_file_write_handle = fopen_unicode_path(paths->actual_text_file_path, "wb"); // USING THE NEW FUNCTION
+                        FILE* user_file_write_handle = fopen_unicode_path(paths->actual_text_file_path, "wb");
                         if (user_file_write_handle) {
                             if (fwrite(temp_copy_buffer, 1, default_file_size, user_file_write_handle) == default_file_size) {
                                 log_paths_message_format(appCtx, "Successfully copied default text to user's path '%s'", paths->actual_text_file_path);
@@ -261,7 +252,7 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
 
         // Attempt to write placeholder to the user file if the path is known
         if (paths->actual_text_file_path[0] != '\0') {
-            FILE* user_file_write_placeholder = fopen_unicode_path(paths->actual_text_file_path, "wb"); // USING THE NEW FUNCTION
+            FILE* user_file_write_placeholder = fopen_unicode_path(paths->actual_text_file_path, "wb");
             if (user_file_write_placeholder) {
                 if (fwrite(raw_text_content, 1, *out_raw_text_len, user_file_write_placeholder) == *out_raw_text_len) {
                     log_paths_message_format(appCtx, "Successfully wrote placeholder text to user's path '%s'", paths->actual_text_file_path);
@@ -288,7 +279,7 @@ void SaveRemainingText(AppContext *appCtx, FilePaths *paths,
 
     if (current_input_byte_idx > 0 && current_input_byte_idx <= final_text_len) {
         if (paths->actual_text_file_path[0] != '\0') {
-            FILE *output_file_handle = fopen_unicode_path(paths->actual_text_file_path, "w"); // Open for writing (overwrite) // USING THE NEW FUNCTION
+            FILE *output_file_handle = fopen_unicode_path(paths->actual_text_file_path, "w"); // Open for writing (overwrite)
             if (output_file_handle) {
                 const char *remaining_text_ptr = text_to_type + current_input_byte_idx;
                 size_t remaining_len = final_text_len - current_input_byte_idx;

@@ -1,5 +1,6 @@
 #include "app_context.h"
 #include "config.h" // For FONT_SIZE, UI_FONT_SIZE, PROJECT_NAME_STR, COMPANY_NAME_STR, ENABLE_GAME_LOGS
+#include "file_paths.h" // <--- ADDED FOR fopen_unicode_path
 #include <SDL2/SDL_filesystem.h> // For SDL_GetPrefPath
 #include <string.h> // For memset
 #include <math.h>   // For roundf
@@ -23,10 +24,11 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
         strcpy(log_file_path_buffer, "TypingApp_logs.txt"); // Fallback path
         fprintf(stderr, "Warning: SDL_GetPrefPath() failed. Attempting to write log to: %s\n", log_file_path_buffer);
     }
-    appCtx->log_file_handle = fopen(log_file_path_buffer, "w");
+    appCtx->log_file_handle = fopen_unicode_path(log_file_path_buffer, "w"); // USE UNICODE PATH
     if (appCtx->log_file_handle == NULL) {
-        perror("CRITICAL_STDERR: Failed to open log file in InitializeApp");
-        fprintf(stderr, "Log file path attempted: %s\n", log_file_path_buffer);
+        // perror("CRITICAL_STDERR: Failed to open log file in InitializeApp"); // perror might be misleading for _wfopen errors
+        fprintf(stderr, "CRITICAL_STDERR: Failed to open log file in InitializeApp. Path attempted: %s\n", log_file_path_buffer);
+        // Specific error reporting for Windows if fopen_unicode_path fails could be added
     } else {
         fputs("Application context initialization started.\n", appCtx->log_file_handle);
         fprintf(appCtx->log_file_handle, "Log file initialized at: %s\n", log_file_path_buffer);
@@ -99,11 +101,8 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
     printf("Attempting to load main font (FONT_SIZE=%d)...\n", FONT_SIZE);
     for (int i = 0; font_paths[i] != NULL; ++i) {
         if(appCtx->log_file_handle) fprintf(appCtx->log_file_handle, "Trying main font path: %s\n", font_paths[i]);
-        // We don't printf this for UI font to avoid duplicate "Trying font path" if paths are reused
 
         #if SDL_TTF_VERSION_ATLEAST(2,0,12)
-            // FONT_SIZE is treated as a logical point size.
-            // TTF_OpenFontDPI will render it sharply for the target DPI.
             unsigned int target_hdpi = (unsigned int)(72 * appCtx->scale_x_factor);
             unsigned int target_vdpi = (unsigned int)(72 * appCtx->scale_y_factor);
             if (target_hdpi == 0) target_hdpi = 72;
@@ -126,7 +125,6 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
             break;
         } else {
             if(appCtx->log_file_handle) fprintf(appCtx->log_file_handle, "Failed to load main font from %s: %s\n", font_paths[i], TTF_GetError());
-            // printf for main font failure is useful
              printf("Failed to load main font from %s: %s\n", font_paths[i], TTF_GetError());
         }
     }
@@ -144,9 +142,7 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
     printf("Attempting to load UI font (UI_FONT_SIZE=%d)...\n", UI_FONT_SIZE);
     bool ui_font_loaded = false;
     for (int i = 0; font_paths[i] != NULL; ++i) {
-        // No separate printf/log for "Trying UI font path" if it's the same as main font paths to avoid noise
         #if SDL_TTF_VERSION_ATLEAST(2,0,12)
-            // UI_FONT_SIZE is treated as a logical point size.
             unsigned int target_hdpi = (unsigned int)(72 * appCtx->scale_x_factor);
             unsigned int target_vdpi = (unsigned int)(72 * appCtx->scale_y_factor);
             if (target_hdpi == 0) target_hdpi = 72;
@@ -169,7 +165,6 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
             break;
         } else {
              if(appCtx->log_file_handle) fprintf(appCtx->log_file_handle, "Failed to load UI font from %s: %s\n", font_paths[i], TTF_GetError());
-             // No printf here for UI font failure to reduce console noise if path is shared
         }
     }
 
@@ -179,52 +174,47 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
         appCtx->ui_font = appCtx->font; // Fallback to main font
         appCtx->ui_line_h = appCtx->line_h; // Use main font's line height
     } else {
-        // Calculate logical line height for UI font
         int ui_scaled_line_h_px = TTF_FontLineSkip(appCtx->ui_font);
         if (ui_scaled_line_h_px <= 0) ui_scaled_line_h_px = TTF_FontHeight(appCtx->ui_font);
-        if (ui_scaled_line_h_px <= 0) ui_scaled_line_h_px = (int)((UI_FONT_SIZE + 4) * appCtx->scale_y_factor); // Estimate scaled pixels
-        if (ui_scaled_line_h_px <= 0 && appCtx->scale_y_factor > 0.01f) ui_scaled_line_h_px = (int)( (UI_FONT_SIZE < 10 ? 14 : UI_FONT_SIZE + 2) * appCtx->scale_y_factor); // Min scaled height for UI
+        if (ui_scaled_line_h_px <= 0) ui_scaled_line_h_px = (int)((UI_FONT_SIZE + 4) * appCtx->scale_y_factor);
+        if (ui_scaled_line_h_px <= 0 && appCtx->scale_y_factor > 0.01f) ui_scaled_line_h_px = (int)( (UI_FONT_SIZE < 10 ? 14 : UI_FONT_SIZE + 2) * appCtx->scale_y_factor);
         else if (ui_scaled_line_h_px <= 0) ui_scaled_line_h_px = (UI_FONT_SIZE < 10 ? 14 : UI_FONT_SIZE + 2);
 
         appCtx->ui_line_h = (appCtx->scale_y_factor > 0.01f) ? (int)roundf((float)ui_scaled_line_h_px / appCtx->scale_y_factor) : (UI_FONT_SIZE + 4);
-        if (appCtx->ui_line_h <= 0) appCtx->ui_line_h = UI_FONT_SIZE + 4; // Ensure positive logical line height
+        if (appCtx->ui_line_h <= 0) appCtx->ui_line_h = UI_FONT_SIZE + 4;
     }
-     if(appCtx->log_file_handle && appCtx->ui_font) { // Log only if ui_font is valid
+     if(appCtx->log_file_handle && appCtx->ui_font) {
         fprintf(appCtx->log_file_handle, "UI Font line height: logical ui_line_h=%d (based on UI_FONT_SIZE=%d, using font: %s)\n",
                 appCtx->ui_line_h, UI_FONT_SIZE, (appCtx->ui_font == appCtx->font ? "main_font_fallback" : "ui_font_specific"));
     }
 
-
-    // Setup palette
     appCtx->palette[COL_BG]        = (SDL_Color){50,52,55,255};
     appCtx->palette[COL_TEXT]      = (SDL_Color){100,102,105,255};
     appCtx->palette[COL_CORRECT]   = (SDL_Color){201,200,190,255};
     appCtx->palette[COL_INCORRECT] = (SDL_Color){200,0,0,255};
     appCtx->palette[COL_CURSOR]    = (SDL_Color){255,200,0,255};
 
-    // Calculate logical line height for main font
     int scaled_line_h_px = TTF_FontLineSkip(appCtx->font);
     if (scaled_line_h_px <= 0) scaled_line_h_px = TTF_FontHeight(appCtx->font);
     if (scaled_line_h_px <= 0) scaled_line_h_px = (int)((FONT_SIZE + 4) * appCtx->scale_y_factor);
-    if (scaled_line_h_px <= 0 && appCtx->scale_y_factor > 0.01f) scaled_line_h_px = (int)(18 * appCtx->scale_y_factor); // Min scaled height
+    if (scaled_line_h_px <= 0 && appCtx->scale_y_factor > 0.01f) scaled_line_h_px = (int)(18 * appCtx->scale_y_factor);
     else if (scaled_line_h_px <= 0) scaled_line_h_px = 18;
 
     appCtx->line_h = (appCtx->scale_y_factor > 0.01f) ? (int)roundf((float)scaled_line_h_px / appCtx->scale_y_factor) : (FONT_SIZE + 4);
-    if (appCtx->line_h <= 0) appCtx->line_h = FONT_SIZE + 4; // Ensure positive logical line height
+    if (appCtx->line_h <= 0) appCtx->line_h = FONT_SIZE + 4;
 
     if (appCtx->log_file_handle) {
         fprintf(appCtx->log_file_handle, "Main Font line height: scaled_px=%d, scale_y_factor=%.2f -> logical line_h=%d\n",
                 scaled_line_h_px, appCtx->scale_y_factor, appCtx->line_h);
     }
 
-    // Cache ASCII glyphs (for main font only)
     for (int c = 32; c < 127; c++) {
         int scaled_adv_px;
         if (TTF_GlyphMetrics(appCtx->font, (Uint16)c, NULL, NULL, NULL, NULL, &scaled_adv_px) != 0) {
             scaled_adv_px = (int)((FONT_SIZE / 2.0f) * appCtx->scale_x_factor);
-             if (scaled_adv_px <= 0) scaled_adv_px = (int)(7 * appCtx->scale_x_factor); // min scaled
+             if (scaled_adv_px <= 0) scaled_adv_px = (int)(7 * appCtx->scale_x_factor);
         }
-        if (scaled_adv_px <= 0 && appCtx->scale_x_factor > 0.01f) scaled_adv_px = (int)(1 * appCtx->scale_x_factor); // min if font returns 0
+        if (scaled_adv_px <= 0 && appCtx->scale_x_factor > 0.01f) scaled_adv_px = (int)(1 * appCtx->scale_x_factor);
         else if (scaled_adv_px <=0) scaled_adv_px = FONT_SIZE/2;
 
         appCtx->glyph_adv_cache[c] = (appCtx->scale_x_factor > 0.01f) ? (int)roundf((float)scaled_adv_px / appCtx->scale_x_factor) : (FONT_SIZE / 2);
@@ -235,11 +225,10 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
             SDL_Surface *surf = TTF_RenderGlyph_Blended(appCtx->font, (Uint16)c, appCtx->palette[col_idx]);
             if (!surf) continue;
 
-            // Log metrics for 'H' glyph from main font for comparison / debug
             if (c == 'H' && col_idx == COL_TEXT && appCtx->log_file_handle) {
                 fprintf(appCtx->log_file_handle, "DEBUG: Main Font Glyph 'H' metrics: surf->w=%d, surf->h=%d (target_vdpi=%u, scale_y_factor=%.2f, FONT_SIZE_logical=%d)\n",
                         surf->w, surf->h,
-                        (unsigned int)(72 * appCtx->scale_y_factor), // This DPI was used for main font
+                        (unsigned int)(72 * appCtx->scale_y_factor),
                         appCtx->scale_y_factor,
                         FONT_SIZE);
             }
@@ -260,19 +249,13 @@ bool InitializeApp(AppContext *appCtx, const char* title) {
     if (appCtx->space_advance_width <= 0) appCtx->space_advance_width = (int)(FONT_SIZE / 3.0f);
     if (appCtx->space_advance_width <= 0) appCtx->space_advance_width = 1;
 
-
     appCtx->tab_width_pixels = (appCtx->space_advance_width > 0) ? (TAB_SIZE_IN_SPACES * appCtx->space_advance_width) : (int)(TAB_SIZE_IN_SPACES * (FONT_SIZE / 3.0f));
     if (appCtx->tab_width_pixels <= 0) appCtx->tab_width_pixels = TAB_SIZE_IN_SPACES;
 
-    // State initialization
     appCtx->typing_started = false;
     appCtx->start_time_ms = 0;
     appCtx->time_at_pause_ms = 0;
     appCtx->is_paused = false;
-    // appCtx->l_modifier_held = false; // REMOVED - these were the cause of the error
-    // appCtx->r_modifier_held = false; // REMOVED - these were the cause of the error
-    // New modifier flags (l_alt_modifier_held, r_alt_modifier_held, l_cmd_modifier_held, r_cmd_modifier_held)
-    // are already initialized to false by the memset at the beginning of this function.
 
     appCtx->total_keystrokes_for_accuracy = 0;
     appCtx->total_errors_committed_for_accuracy = 0;
@@ -292,7 +275,6 @@ void CleanupApp(AppContext *appCtx) {
 
     if(appCtx->log_file_handle) fprintf(appCtx->log_file_handle, "Cleaning up application context...\n");
 
-    // Free cached glyph textures (for main font)
     for (int c = 32; c < 127; c++) {
         for (int col = COL_TEXT; col <= COL_INCORRECT; col++) {
             if (appCtx->glyph_tex_cache[col][c]) {
@@ -302,25 +284,22 @@ void CleanupApp(AppContext *appCtx) {
         }
     }
 
-    // Close fonts
-    if (appCtx->ui_font && appCtx->ui_font != appCtx->font) { // Close UI font only if it's a separate loaded font
+    if (appCtx->ui_font && appCtx->ui_font != appCtx->font) {
         TTF_CloseFont(appCtx->ui_font);
     }
-    appCtx->ui_font = NULL; // Set to NULL regardless, to avoid double free if it was a fallback
+    appCtx->ui_font = NULL;
 
     if (appCtx->font) {
         TTF_CloseFont(appCtx->font);
         appCtx->font = NULL;
     }
 
-    // Cleanup SDL subsystems
     if (appCtx->ren) { SDL_DestroyRenderer(appCtx->ren); appCtx->ren = NULL; }
     if (appCtx->win) { SDL_DestroyWindow(appCtx->win); appCtx->win = NULL; }
 
     TTF_Quit();
     SDL_Quit();
 
-    // Close log file
     if (appCtx->log_file_handle) {
         fprintf(appCtx->log_file_handle, "Application context cleaned up.\nApplication finished.\n");
         fflush(appCtx->log_file_handle);

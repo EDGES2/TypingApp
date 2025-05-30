@@ -3,6 +3,7 @@
 
 #include "app_context.h" // For AppContext (if log_file_handle is used here)
 #include <stddef.h>      // For size_t
+#include <stdio.h>       // For FILE*
 
 // Maximum file path length
 #define MAX_PATH_LEN 1024
@@ -26,5 +27,8 @@ char* LoadInitialText(AppContext *appCtx, FilePaths *paths, size_t* out_raw_text
 void SaveRemainingText(AppContext *appCtx, FilePaths *paths,
                        const char *text_to_type, size_t final_text_len,
                        size_t current_input_byte_idx);
+
+// Unicode-safe fopen wrapper
+FILE* fopen_unicode_path(const char *utf8_path, const char *mode);
 
 #endif // FILE_PATHS_H
