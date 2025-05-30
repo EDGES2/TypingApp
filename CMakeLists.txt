@@ -535,28 +535,29 @@ if(WIN32)
 
     # CPack settings for NSIS
     set(CPACK_PACKAGE_NAME "${PROJECT_NAME_STR}")
-    set(CPACK_PACKAGE_VERSION "3.0.1") # You might want to make this dynamic
+    set(CPACK_PACKAGE_VERSION "3.0.1")
     set(CPACK_PACKAGE_VENDOR "${COMPANY_NAME_STR}")
     set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_NAME_STR} - Typing Application")
-    set(CPACK_PACKAGE_HOMEPAGE_URL "https://example.com/${PROJECT_NAME_STR}") # Replace with actual URL
+    set(CPACK_PACKAGE_HOMEPAGE_URL "https://example.com/${PROJECT_NAME_STR}")
     set(CPACK_PACKAGE_CONTACT "${COMPANY_NAME_STR}")
 
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PROJECT_NAME_STR} ${CPACK_PACKAGE_VERSION}")
-    set(CPACK_NSIS_PACKAGE_NAME "${PROJECT_NAME_STR} ${CPACK_PACKAGE_VERSION}") # Name of the installer .exe
-    set(CPACK_NSIS_DISPLAY_NAME "${PROJECT_NAME_STR}") # Name shown in installer UI
+    set(CPACK_NSIS_PACKAGE_NAME "${PROJECT_NAME_STR} ${CPACK_PACKAGE_VERSION}")
+    set(CPACK_NSIS_DISPLAY_NAME "${PROJECT_NAME_STR}")
     set(CPACK_NSIS_PUBLISHER "${COMPANY_NAME_STR}")
-    set(CPACK_NSIS_URL_INFO_ABOUT "https://example.com/${PROJECT_NAME_STR}") # URL for "About"
+    set(CPACK_NSIS_URL_INFO_ABOUT "https://example.com/${PROJECT_NAME_STR}")
 
-    if(EXISTS "${WINDOWS_ICON_ASSET_PATH}")
-        set(CPACK_NSIS_MUI_ICON "${WINDOWS_ICON_ASSET_PATH}")
-        set(CPACK_NSIS_MUI_UNIICON "${WINDOWS_ICON_ASSET_PATH}")
+    set(WINDOWS_APP_ICON_ICO "${CMAKE_CURRENT_SOURCE_DIR}/assets/appicon.ico")
+    if(EXISTS "${WINDOWS_APP_ICON_ICO}")
+        set(CPACK_NSIS_MUI_ICON "${WINDOWS_APP_ICON_ICO}")
+        set(CPACK_NSIS_MUI_UNIICON "${WINDOWS_APP_ICON_ICO}")
     else()
-        message(STATUS "Windows icon (appicon.ico) not found at ${WINDOWS_ICON_ASSET_PATH}. Installer will use default icon.")
+        message(STATUS "appicon.ico not found at ${WINDOWS_APP_ICON_ICO}. Installer will use default icon.")
     endif()
 
-    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64") # Install to Program Files (64-bit)
+    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
-    set(CPACK_NSIS_REQUEST_EXECUTION_LEVEL "admin")
+    set(CPACK_NSIS_REQUEST_EXECUTION_LEVEL "admin") # Keep administrator rights request [cite: 1]
 
     # Define the main executable target for CPack
     set(CPACK_PACKAGE_EXECUTABLES "${PROJECT_NAME}" "${PROJECT_NAME_STR}")
@@ -564,24 +565,32 @@ if(WIN32)
     # Path where executables are installed, relative to install root
     set(CPACK_NSIS_EXECUTABLES_DIRECTORY "bin")
 
-    # Setup Start Menu links using forward slashes or escaped backslashes
-    set(CPACK_NSIS_PROGRAM_MENU_GROUP "${PROJECT_NAME_STR}") # Creates a folder in Start Menu
+    # Start Menu Links - Be explicit with the path to the executable
     set(CPACK_NSIS_MENU_LINKS
-            "bin/${PROJECT_NAME}.exe" "${PROJECT_NAME_STR}"  # Target: $INSTDIR/bin/TypingApp.exe, Name: TypingApp
-            # "docs/readme.txt" "Readme" # Example
+            "bin\\${PROJECT_NAME}.exe" # Path to .exe relative to $INSTDIR [cite: 1]
+            "${PROJECT_NAME_STR}"      # Shortcut name in the Start Menu folder [cite: 1]
+            # (The Start Menu folder will be named ${PROJECT_NAME_STR}) [cite: 1]
     )
 
     # Desktop Shortcut variable - CPack uses this with CPACK_PACKAGE_EXECUTABLES
+    # We will also add an explicit command below for more robustness
     set(CPACK_NSIS_DESKTOP_SHORTCUTS "${PROJECT_NAME_STR}")
-    set(CPACK_NSIS_CREATE_ICONS_EVERYWHERE TRUE) # Try to ensure icons are created
 
-    # Explicitly add NSIS command to create the desktop shortcut with the icon.
-    # Use forward slashes for paths in NSIS commands.
+    # This variable should encourage NSIS to create icons if UI options are present
+    set(CPACK_NSIS_CREATE_ICONS_EVERYWHERE TRUE)
+
+    # Explicitly add NSIS command to create the desktop shortcut.
+    # This command will be inserted into the generated NSIS script.
+    # $DESKTOP is an NSIS constant for the desktop folder.
+    # $INSTDIR is an NSIS constant for the installation directory.
+    # appicon.ico is installed to $INSTDIR by: install(FILES ... DESTINATION "." ...)
     set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
-            "CreateShortCut '$DESKTOP/${PROJECT_NAME_STR}.lnk' '$INSTDIR/bin/${PROJECT_NAME}.exe' '' '$INSTDIR/appicon.ico' 0"
+            "CreateShortCut '$DESKTOP\\${PROJECT_NAME_STR}.lnk' '$INSTDIR\\bin\\${PROJECT_NAME}.exe' '' '$INSTDIR\\appicon.ico' 0"
     )
+
+    # Add command to remove the desktop shortcut during uninstallation
     set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS
-            "Delete '$DESKTOP/${PROJECT_NAME_STR}.lnk'"
+            "Delete '$DESKTOP\\${PROJECT_NAME_STR}.lnk'"
     )
 
     # Component Description
