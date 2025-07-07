@@ -1,3 +1,8 @@
+## Opis do CV
+Aplikacja do ćwiczenia bezwzrokowego pisania na klawiaturze, napisana w języku C z wykorzystaniem biblioteki SDL do stworzenia interfejsu.
+
+Od popularnych aplikacji internetowych odróżnia ją to, że pozwala ona na wykorzystanie własnego, wcześniej wprowadzonego przez użytkownika tekstu. Może to uatrakcyjnić monotonne ćwiczenia na początkowym etapie nauki szybkiego pisania.
+
 ## 🎹 Shortcuts Guide
 
 ### 🖥 MacOS
